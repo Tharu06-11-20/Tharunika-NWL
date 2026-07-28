@@ -1,0 +1,934 @@
+#include <stdio.h>
+#include <string.h>
+
+void charTo7Bit(char ch, char bin[])
+{
+    int i;
+    for(i = 6; i >= 0; i--)
+    {
+        if(ch % 2 == 0)
+            bin[i] = '0';
+        else
+            bin[i] = '1';
+
+        ch = ch / 2;
+    }
+    bin[7] = '\0';
+}
+
+char getEvenParity(char bin[])
+{
+    int i;
+    int ones = 0;
+
+    for(i = 0; i < 7; i++)
+    {
+        if(bin[i] == '1')
+            ones++;
+    }
+
+    if(ones % 2 == 0)
+        return '0';
+    else
+        return '1';
+}
+
+int countOnes(char data[])
+{
+    int i;
+    int count = 0;
+
+    for(i = 0; i < 8; i++)
+    {
+        if(data[i] == '1')
+            count++;
+    }
+
+    return count;
+}
+
+int main()
+{
+    char message[100];
+    char blocks[100][9];
+    int i, j;
+
+    printf("Enter a message: ");
+    fgets(message, sizeof(message), stdin);
+
+    int len = strlen(message);
+    if(len > 0 && message[len - 1] == '\n')
+    {
+        message[len - 1] = '\0';
+        len--;
+    }
+
+    printf("\n--- Binary Table ---\n\n");
+    printf("Block\tChar\t7-Bit Data\tParity Added\tFull Block\n");
+    printf("-----\t----\t----------\t------------\t----------\n");
+
+    for(i = 0; i < len; i++)
+    {
+        char sevenBit[8];
+
+        charTo7Bit(message[i], sevenBit);
+
+        for(j = 0; j < 7; j++)
+        {
+            blocks[i][j] = sevenBit[j];
+        }
+
+        char parityBit = getEvenParity(sevenBit);
+        blocks[i][7] = parityBit;
+        blocks[i][8] = '\0';
+
+        printf("  %d\t %c\t%s\t\t%c\t\t%s\n", i + 1, message[i], sevenBit, parityBit, blocks[i]);
+    }
+
+    char choice;
+    printf("\nDo you want to change any bits? (Y/N): ");
+    scanf(" %c", &choice);
+
+    if(choice == 'Y' || choice == 'y')
+    {
+        int bitsToModify;
+        printf("How many bits do you want to change in each block?: ");
+        scanf("%d", &bitsToModify);
+
+        for(i = 0; i < len; i++)
+        {
+            printf("\n--- Block %d ('%c') ---\n", i + 1, message[i]);
+
+            for(j = 0; j < bitsToModify; j++)
+            {
+                int bitPos;
+                char newValue;
+
+                printf("Enter position (1 to 8): ");
+                scanf("%d", &bitPos);
+
+                printf("Enter new value (0 or 1): ");
+                scanf(" %c", &newValue);
+
+                blocks[i][bitPos - 1] = newValue;
+            }
+        }
+
+        printf("\n--- Updated Blocks ---\n");
+        for(i = 0; i < len; i++)
+        {
+            printf("Block %d: %s\n", i + 1, blocks[i]);
+        }
+
+        printf("\n--- Checking for Errors ---\n");
+        int hasError = 0;
+
+        for(i = 0; i < len; i++)
+        {
+            int totalOnes = countOnes(blocks[i]);
+
+            if(totalOnes % 2 != 0)
+            {
+                printf("Block %d: Error found!\n", i + 1);
+                hasError = 1;
+            }
+            else
+            {
+                printf("Block %d: No error found.\n", i + 1);
+            }
+        }
+
+        if(hasError == 0)
+        {
+            printf("\nAll blocks are fine.\n");
+        }
+    }
+    else
+    {
+        printf("\nNo changes made.\n");
+    }
+
+    return 0;
+}
+-------------------------------------------------------------------------------
+
+[24bcs160@mepcolinux ex2new]$cat sender.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct {
+    char name[10];
+    unsigned short code;
+} PPPProtocol;
+
+PPPProtocol ppp_table[] = {
+    {"IP",   0x0021},
+    {"IPv6", 0x0057},
+    {"LCP",  0xC021},
+    {"PAP",  0xC023},
+    {"CHAP", 0xC223},
+    {"IPCP", 0x8021},
+    {"CCP",  0x80FD}
+};
+
+void str_to_binary(const char *input, char *binary_out) {
+    int i, b, val;
+    char temp_byte[9];
+    binary_out[0] = '\0';
+
+    for (i = 0; input[i] != '\0'; i++) {
+        unsigned char c = input[i];
+        val = (int)c;
+        temp_byte[8] = '\0';
+
+        for (b = 7; b >= 0; b--) {
+            temp_byte[b] = (val % 2) + '0';
+            val /= 2;
+        }
+        strcat(binary_out, temp_byte);
+        if (input[i + 1] != '\0') strcat(binary_out, " ");
+    }
+}
+
+void port_to_binary(unsigned short port, char *bin_out) {
+    int pos = 0;
+    int b;
+    for (b = 7; b >= 0; b--) bin_out[pos++] = ((port >> (b + 8)) & 1) ? '1' : '0';
+    bin_out[pos++] = ' ';
+    for (b = 7; b >= 0; b--) bin_out[pos++] = ((port >> b) & 1) ? '1' : '0';
+    bin_out[pos] = '\0';
+}
+
+void ip_to_binary(const char *ip, char *bin_out) {
+    int octets[4];
+    int i, b;
+    bin_out[0] = '\0';
+    if (sscanf(ip, "%d.%d.%d.%d", &octets[0], &octets[1], &octets[2], &octets[3]) != 4) return;
+
+    for (i = 0; i < 4; i++) {
+        for (b = 7; b >= 0; b--) {
+            strcat(bin_out, ((octets[i] >> b) & 1) ? "1" : "0");
+            if (b == 0 && i < 3) strcat(bin_out, " ");
+        }
+    }
+}
+
+void proto_to_binary(unsigned short code, char *bin_out) {
+    int pos = 0;
+    int b;
+    for (b = 7; b >= 0; b--) bin_out[pos++] = ((code >> (b + 8)) & 1) ? '1' : '0';
+    bin_out[pos++] = ' ';
+    for (b = 7; b >= 0; b--) bin_out[pos++] = ((code >> b) & 1) ? '1' : '0';
+    bin_out[pos] = '\0';
+}
+
+void arr16_to_str(int *arr, char *out_str) {
+    int pos = 0;
+    int j;
+    for (j = 0; j < 16; j++) {
+        out_str[pos++] = arr[j] + '0';
+        if (j == 7) out_str[pos++] = ' ';
+    }
+    out_str[pos] = '\0';
+}
+
+void calculate_16bit_checksum(FILE *fp, const char *clean_bits, char *checksum_out) {
+    int total_bits = (int)strlen(clean_bits);
+    char padded_bits[8192];
+    int p, num_blocks, i, j, pos, pad_len, carry;
+    int current_sum[16] = {0};
+
+    strcpy(padded_bits, clean_bits);
+    if (total_bits % 16 != 0) {
+        pad_len = 16 - (total_bits % 16);
+        for (p = 0; p < pad_len; p++) strcat(padded_bits, "0");
+        total_bits += pad_len;
+    }
+
+    num_blocks = total_bits / 16;
+
+    printf("---------------------------------------------------------\n");
+    printf("     CHECKSUM GENERATION (RUNNING ON STUFFED DATA)\n");
+    printf("---------------------------------------------------------\n");
+    if (fp) {
+        fprintf(fp, "---------------------------------------------------------\n");
+        fprintf(fp, "     CHECKSUM GENERATION (RUNNING ON STUFFED DATA)\n");
+        fprintf(fp, "---------------------------------------------------------\n");
+    }
+
+    for (i = 0; i < num_blocks; i++) {
+        int block_val[16] = {0};
+        char block_str[17] = "";
+        char prev_sum_str[20], add_block_str[20], new_sum_str[20];
+        int temp_sum[16];
+
+        strncpy(block_str, padded_bits + (i * 16), 16);
+        block_str[16] = '\0';
+
+        for (j = 0; j < 16; j++) {
+            block_val[j] = block_str[j] - '0';
+        }
+
+        arr16_to_str(current_sum, prev_sum_str);
+        arr16_to_str(block_val, add_block_str);
+
+        carry = 0;
+        for (j = 15; j >= 0; j--) {
+            int sum_val = current_sum[j] + block_val[j] + carry;
+            temp_sum[j] = sum_val % 2;
+            carry = sum_val / 2;
+        }
+
+        while (carry > 0) {
+            for (j = 15; j >= 0; j--) {
+                int sum_val = temp_sum[j] + carry;
+                temp_sum[j] = sum_val % 2;
+                carry = sum_val / 2;
+                if (carry == 0) break;
+            }
+        }
+
+        for (j = 0; j < 16; j++) {
+            current_sum[j] = temp_sum[j];
+        }
+
+        arr16_to_str(current_sum, new_sum_str);
+
+        printf("Block %2d     : %s\n", i + 1, add_block_str);
+        printf("Previous Sum : %s\n", prev_sum_str);
+        printf("Add Block    : %s\n", add_block_str);
+        printf("New Sum      : %s\n\n", new_sum_str);
+
+        if (fp) {
+            fprintf(fp, "Block %2d     : %s\n", i + 1, add_block_str);
+            fprintf(fp, "Previous Sum : %s\n", prev_sum_str);
+            fprintf(fp, "Add Block    : %s\n", add_block_str);
+            fprintf(fp, "New Sum      : %s\n\n", new_sum_str);
+        }
+    }
+
+    pos = 0;
+    for (j = 0; j < 16; j++) {
+        checksum_out[pos++] = (!current_sum[j]) + '0';
+        if (j == 7) checksum_out[pos++] = ' ';
+    }
+    checksum_out[pos] = '\0';
+}
+
+int main() {
+    int choice;
+    char src_url[64] = "google.com", dst_url[64] = "google.com";
+    int pkt_size = 32, frame_size = 10;
+    char filename[64] = "in.txt";
+    char message[256] = "Hi,This is Tharunika";
+    FILE *in_fp;
+    int proto_choice = 1;
+    int total_protocols;
+    char proto_bin[32];
+    FILE *fp;
+
+    int i, p, b, pos, start_byte, inject, bit_pos;
+
+    char app_binary[2048];
+    unsigned short src_port = 28017, dst_port = 50054;
+    char src_port_bin[32], dst_port_bin[32];
+    char layer2_output[4096];
+    char src_ip[] = "142.250.190.46", dst_ip[] = "142.250.190.46";
+    char src_ip_bin[64], dst_ip_bin[64];
+    char clean_l2[4096] = "";
+    int l2_bytes, bytes_per_pkt, num_pkts;
+    char combined_stream[8192] = "";
+
+    const char *FLAG_BYTE = "01111110";
+    const char *ADDR_BYTE = "11111111";
+    const char *CTRL_BYTE = "00000011";
+    const char *ESC_BYTE  = "01111101";
+
+    char clean_comb[8192] = "";
+    char stuffed_data[8192] = "";
+    int total_payload_bytes;
+    char stuffed_clean[8192] = "";
+    char proto_clean[32] = "";
+    char fcs_input_clean[8192] = "";
+    char checksum_str[20] = "";
+    char bitstream[8192];
+    char clean_stream[8192] = "";
+
+    printf("=================== NETWORK TOOL MENU ===================\n");
+    printf(" 1. Add Network Node\n");
+    printf(" 2. Delete Network Node\n");
+    printf(" 3. Generate & Stream Frame\n");
+    printf(" 4. View Network Table\n");
+    printf(" 5. Exit Program\n");
+    printf("---------------------------------------------------------\n");
+    printf("Enter your choice (1-5): ");
+    if (scanf("%d", &choice) != 1 || choice != 3) return 0;
+
+    printf("\n--- FRAME CONFIGURATION WINDOW ---\n");
+    printf("Source URL : "); scanf("%s", src_url);
+    printf("Destination URL : "); scanf("%s", dst_url);
+    printf("Packet Bit Size (e.g. 32 bits = 4 chars) : "); scanf("%d", &pkt_size);
+    printf("Frame Bit Size (e.g. 10 bits) : "); scanf("%d", &frame_size);
+    printf("Source File Name (containing text to process) : "); scanf("%s", filename);
+
+    in_fp = fopen(filename, "r");
+    if (in_fp) {
+        if (fgets(message, sizeof(message), in_fp) != NULL) {
+            message[strcspn(message, "\r\n")] = 0;
+        }
+        fclose(in_fp);
+    }
+
+    total_protocols = sizeof(ppp_table) / sizeof(ppp_table[0]);
+    printf("\nSelect PPP Protocol:\n");
+    for (i = 0; i < total_protocols; i++) {
+        printf(" %d. %s (0x%04X)\n", i + 1, ppp_table[i].name, ppp_table[i].code);
+    }
+    printf("Enter protocol choice (1-%d): ", total_protocols);
+    if (scanf("%d", &proto_choice) != 1 || proto_choice < 1 || proto_choice > total_protocols) proto_choice = 1;
+
+    proto_to_binary(ppp_table[proto_choice - 1].code, proto_bin);
+
+    fp = fopen("stuff.txt", "w");
+
+    printf("\n========================================================\n");
+    printf("              PROTOCOL LAYER PROCESSING OUTPUT          \n");
+    printf("========================================================\n\n");
+
+    // LAYER 1: APPLICATION LAYER
+    str_to_binary(message, app_binary);
+    printf("[LAYER 1 : APPLICATION LAYER]\n");
+    printf(" Raw Data Payload : %s\n", message);
+    printf(" Binary Encoded   : %s\n\n", app_binary);
+
+    // LAYER 2: TRANSPORT LAYER
+    port_to_binary(src_port, src_port_bin);
+    port_to_binary(dst_port, dst_port_bin);
+    sprintf(layer2_output, "%s %s %s", src_port_bin, dst_port_bin, app_binary);
+
+    printf("[LAYER 2 : TRANSPORT LAYER]\n");
+    printf(" Source Port (%d) : %s\n", src_port, src_port_bin);
+    printf(" Dest Port   (%d) : %s\n", dst_port, dst_port_bin);
+    printf(" Transport Segment: %s\n\n", layer2_output);
+
+    // LAYER 3: NETWORK LAYER
+    ip_to_binary(src_ip, src_ip_bin);
+    ip_to_binary(dst_ip, dst_ip_bin);
+
+    pos = 0;
+    for (i = 0; layer2_output[i] != '\0'; i++) {
+        if (layer2_output[i] != ' ') clean_l2[pos++] = layer2_output[i];
+    }
+    clean_l2[pos] = '\0';
+
+    l2_bytes = (int)strlen(clean_l2) / 8;
+    bytes_per_pkt = pkt_size / 8;
+    if (bytes_per_pkt <= 0) bytes_per_pkt = 4;
+    num_pkts = (l2_bytes + bytes_per_pkt - 1) / bytes_per_pkt;
+
+    printf("[LAYER 3 : NETWORK LAYER]\n");
+    printf(" Source IP (%s) : %s\n", src_ip, src_ip_bin);
+    printf(" Dest IP   (%s) : %s\n", dst_ip, dst_ip_bin);
+
+    for (p = 0; p < num_pkts; p++) {
+        char pkt_bin[1024] = "";
+        sprintf(pkt_bin, "%s %s ", src_ip_bin, dst_ip_bin);
+
+        start_byte = p * bytes_per_pkt;
+        for (b = 0; b < bytes_per_pkt && (start_byte + b) < l2_bytes; b++) {
+            char chunk[9];
+            strncpy(chunk, clean_l2 + (start_byte + b) * 8, 8);
+            chunk[8] = '\0';
+            strcat(pkt_bin, chunk);
+            if (b + 1 < bytes_per_pkt && (start_byte + b + 1) < l2_bytes) strcat(pkt_bin, " ");
+        }
+
+        printf(" Packet %d Stream  : %s\n", p + 1, pkt_bin);
+        strcat(combined_stream, pkt_bin);
+        if (p + 1 < num_pkts) strcat(combined_stream, " ");
+    }
+    printf(" Full Network Payload: %s\n\n", combined_stream);
+
+
+    pos = 0;
+    for (i = 0; combined_stream[i] != '\0'; i++) {
+        if (combined_stream[i] != ' ') clean_comb[pos++] = combined_stream[i];
+    }
+    clean_comb[pos] = '\0';
+
+    total_payload_bytes = (int)strlen(clean_comb) / 8;
+
+    for (i = 0; i < total_payload_bytes; i++) {
+        char current_byte[9];
+        strncpy(current_byte, clean_comb + (i * 8), 8);
+        current_byte[8] = '\0';
+
+        if (strcmp(current_byte, FLAG_BYTE) == 0 || strcmp(current_byte, ESC_BYTE) == 0) {
+            strcat(stuffed_data, ESC_BYTE);
+            strcat(stuffed_data, " ");
+        }
+        strcat(stuffed_data, current_byte);
+        if (i + 1 < total_payload_bytes) strcat(stuffed_data, " ");
+    }
+
+    printf("---------------------------------------------------------\n");
+    printf("              STEP 1: BYTE STUFFING OUTPUT               \n");
+    printf("---------------------------------------------------------\n");
+    printf("Raw Data     : %s\n", combined_stream);
+    printf("Stuffed Data : %s\n\n", stuffed_data);
+
+    if (fp) {
+        fprintf(fp, "---------------------------------------------------------\n");
+        fprintf(fp, "              STEP 1: BYTE STUFFING OUTPUT               \n");
+        fprintf(fp, "---------------------------------------------------------\n");
+        fprintf(fp, "Raw Data     : %s\n", combined_stream);
+        fprintf(fp, "Stuffed Data : %s\n\n", stuffed_data);
+    }
+
+
+    pos = 0;
+    for (i = 0; stuffed_data[i] != '\0'; i++) {
+        if (stuffed_data[i] != ' ') stuffed_clean[pos++] = stuffed_data[i];
+    }
+    stuffed_clean[pos] = '\0';
+
+    pos = 0;
+    for (i = 0; proto_bin[i] != '\0'; i++) {
+        if (proto_bin[i] != ' ') proto_clean[pos++] = proto_bin[i];
+    }
+    proto_clean[pos] = '\0';
+
+
+    sprintf(fcs_input_clean, "%s%s%s%s", ADDR_BYTE, CTRL_BYTE, proto_clean, stuffed_clean);
+    calculate_16bit_checksum(fp, fcs_input_clean, checksum_str);
+
+    // STEP 3: DISPLAY SENDER PPP FRAME FORMAT
+    printf("---------------------------------------------------------\n");
+    printf("          STEP 2: FINAL PPP FRAME FORMAT (SENDER)        \n");
+    printf("---------------------------------------------------------\n");
+    printf("| Flag | Address | Control | Protocol | Stuffed Data | FCS | Flag |\n");
+    printf("------------------------------------------------------------\n");
+    printf("Flag          : %s\n", FLAG_BYTE);
+    printf("Address       : %s\n", ADDR_BYTE);
+    printf("Control       : %s\n", CTRL_BYTE);
+    printf("Protocol      : %s\n", proto_bin);
+    printf("Stuffed Data  : %s\n", stuffed_data);
+    printf("FCS           : %s\n", checksum_str);
+    printf("Flag          : %s\n\n", FLAG_BYTE);
+
+    if (fp) {
+        fprintf(fp, "---------------------------------------------------------\n");
+        fprintf(fp, "          STEP 2: FINAL PPP FRAME FORMAT (SENDER)        \n");
+        fprintf(fp, "---------------------------------------------------------\n");
+        fprintf(fp, "| Flag | Address | Control | Protocol | Stuffed Data | FCS | Flag |\n");
+        fprintf(fp, "------------------------------------------------------------\n");
+        fprintf(fp, "Flag          : %s\n", FLAG_BYTE);
+        fprintf(fp, "Address       : %s\n", ADDR_BYTE);
+        fprintf(fp, "Control       : %s\n", CTRL_BYTE);
+        fprintf(fp, "Protocol      : %s\n", proto_bin);
+        fprintf(fp, "Stuffed Data  : %s\n", stuffed_data);
+        fprintf(fp, "FCS           : %s\n", checksum_str);
+        fprintf(fp, "Flag          : %s\n\n", FLAG_BYTE);
+    }
+
+    // LAYER 5: PHYSICAL LAYER & BIT INJECTION
+    sprintf(bitstream, "%s %s %s %s %s %s %s", FLAG_BYTE, ADDR_BYTE, CTRL_BYTE, proto_bin, stuffed_data, checksum_str, FLAG_BYTE);
+
+    pos = 0;
+    for (i = 0; bitstream[i] != '\0'; i++) {
+        if (bitstream[i] != ' ') clean_stream[pos++] = bitstream[i];
+    }
+    clean_stream[pos] = '\0';
+
+    printf("[LAYER 5 : PHYSICAL LAYER (BIT TRANSMISSION)]\n");
+    printf(" Complete Binary Stuffed Stream (Sender):\n %s\n\n", bitstream);
+    if (fp) {
+        fprintf(fp, "[LAYER 5 : PHYSICAL LAYER (BIT TRANSMISSION)]\n");
+        fprintf(fp, " Complete Binary Stuffed Stream (Sender):\n %s\n\n", bitstream);
+    }
+
+    inject = 0;
+    bit_pos = 0;
+    printf("Do you want to inject a Bit Error into the stream? (1 = Yes, 0 = No): ");
+    if (fp) fprintf(fp, "Do you want to inject a Bit Error into the stream? (1 = Yes, 0 = No): ");
+
+    if (scanf("%d", &inject) == 1 && inject == 1) {
+        if (fp) fprintf(fp, "1\n");
+
+        printf("Enter bit position to flip (1 to %d): ", (int)strlen(clean_stream));
+        if (fp) fprintf(fp, "Enter bit position to flip (1 to %d): ", (int)strlen(clean_stream));
+
+        if (scanf("%d", &bit_pos) == 1 && bit_pos >= 1 && bit_pos <= (int)strlen(clean_stream)) {
+            if (fp) fprintf(fp, "%d\n", bit_pos);
+
+            char old_bit = clean_stream[bit_pos - 1];
+            char new_bit = (old_bit == '0') ? '1' : '0';
+            clean_stream[bit_pos - 1] = new_bit;
+
+            printf("\n---------------------------------------------------------\n");
+            printf("              BIT ERROR INJECTION DETAILS                \n");
+            printf("---------------------------------------------------------\n");
+            printf(" Modified Bit Position : %d\n", bit_pos);
+            printf(" Original Bit Value    : '%c'\n", old_bit);
+            printf(" Injected Bit Value    : '%c'\n", new_bit);
+            printf(" Transformation        : Bit %d flipped from '%c' -> '%c'\n\n", bit_pos, old_bit, new_bit);
+
+            if (fp) {
+                fprintf(fp, "\n---------------------------------------------------------\n");
+                fprintf(fp, "              BIT ERROR INJECTION DETAILS                \n");
+                fprintf(fp, "---------------------------------------------------------\n");
+                fprintf(fp, " Modified Bit Position : %d\n", bit_pos);
+                fprintf(fp, " Original Bit Value    : '%c'\n", old_bit);
+                fprintf(fp, " Injected Bit Value    : '%c'\n", new_bit);
+                fprintf(fp, " Transformation        : Bit %d flipped from '%c' -> '%c'\n\n", bit_pos, old_bit, new_bit);
+            }
+
+            pos = 0;
+            for (i = 0; clean_stream[i] != '\0'; i++) {
+                bitstream[pos++] = clean_stream[i];
+                if ((i + 1) % 8 == 0 && clean_stream[i + 1] != '\0') bitstream[pos++] = ' ';
+            }
+            bitstream[pos] = '\0';
+
+            printf(" Modified Binary Stuffed Bit Error Injected Stream:\n %s\n\n", bitstream);
+            if (fp) fprintf(fp, " Modified Binary Stuffed Bit Error Injected Stream:\n %s\n\n", bitstream);
+        }
+    } else {
+        if (fp) fprintf(fp, "0\n");
+        printf("No bit error injected.\n\n");
+        if (fp) fprintf(fp, "No bit error injected.\n\n");
+    }
+
+    if (fp) {
+        fclose(fp);
+        printf("[SUCCESS] Output successfully recorded to 'stuff.txt'\n");
+    }
+
+    return 0;
+}
+[24bcs160@mepcolinux ex2new]$cat receiver.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void arr16_to_str(int *arr, char *out_str) {
+    int pos = 0;
+    int j;
+    for (j = 0; j < 16; j++) {
+        out_str[pos++] = arr[j] + '0';
+        if (j == 7) out_str[pos++] = ' ';
+    }
+    out_str[pos] = '\0';
+}
+
+void format_bytes_with_spaces(const char *in_str, char *out_str) {
+    int len = (int)strlen(in_str);
+    int pos = 0;
+    int i;
+    for (i = 0; i < len; i++) {
+        out_str[pos++] = in_str[i];
+        if ((i + 1) % 8 == 0 && (i + 1) < len) {
+            out_str[pos++] = ' ';
+        }
+    }
+    out_str[pos] = '\0';
+}
+
+void print_and_log_input_file(FILE *out_fp) {
+    FILE *orig_fp = fopen("input.txt", "r");
+    char buffer[1024];
+
+    if (!orig_fp) {
+        printf("Error: Could not open 'input.txt' to read original content.\n");
+        if (out_fp) fprintf(out_fp, "Error: Could not open 'input.txt'\n");
+        return;
+    }
+
+    printf("---------------------------------------------------------\n");
+    printf("         ORIGINAL CONTENT FROM input.txt                 \n");
+    printf("---------------------------------------------------------\n");
+
+    if (out_fp) {
+        fprintf(out_fp, "---------------------------------------------------------\n");
+        fprintf(out_fp, "         ORIGINAL CONTENT FROM input.txt                 \n");
+        fprintf(out_fp, "---------------------------------------------------------\n");
+    }
+
+    while (fgets(buffer, sizeof(buffer), orig_fp)) {
+        printf("%s", buffer);
+        if (out_fp) fprintf(out_fp, "%s", buffer);
+    }
+    printf("\n---------------------------------------------------------\n\n");
+    if (out_fp) fprintf(out_fp, "\n---------------------------------------------------------\n\n");
+
+    fclose(orig_fp);
+}
+
+int main(void) {
+    FILE *in_fp = fopen("stuff.txt", "r");
+    FILE *out_fp = fopen("destuff.txt", "w");
+    char line[4096];
+    char raw_stream[8192] = "";
+    char clean_stream[8192] = "";
+
+    const char *ESC_BYTE = "01111101";
+
+    /* --- Declarations placed strictly at the top of main --- */
+    int pos, i, j, total_bits, payload_bit_len, payload_bytes;
+    int v_len, pad_len, num_v_blocks, carry, is_valid;
+    int bit_error_detected = 0;
+    int current_sum[16] = {0};
+
+    /* Frame components & Payload buffers */
+    char rx_flag_start[9], rx_addr[9], rx_ctrl[9], rx_proto[17], rx_fcs[17], rx_flag_end[9];
+    char rx_stuffed_payload[4096] = "";
+    char formatted_payload[8192] = "";
+    char formatted_clean_payload[8192] = "";
+    char fcs_check_input[8192] = "";
+    char padded_fcs_input[8192] = "";
+    char destuffed_bits[4096] = "";
+
+    if (!in_fp) {
+        printf("Error: Could not open 'stuff.txt'. Please run sender program first.\n");
+        if (out_fp) fclose(out_fp);
+        return 1;
+    }
+
+    /* Read stuff.txt to capture transmitted stream */
+    while (fgets(line, sizeof(line), in_fp)) {
+        if (strstr(line, "Modified Binary Stuffed Bit Error Injected Stream:")) {
+            bit_error_detected = 1;
+            if (fgets(line, sizeof(line), in_fp)) {
+                strcpy(raw_stream, line);
+                raw_stream[strcspn(raw_stream, "\r\n")] = '\0';
+            }
+        } else if (strstr(line, "Complete Binary Stuffed Stream (Sender):") && raw_stream[0] == '\0') {
+            if (fgets(line, sizeof(line), in_fp)) {
+                strcpy(raw_stream, line);
+                raw_stream[strcspn(raw_stream, "\r\n")] = '\0';
+            }
+        }
+    }
+    fclose(in_fp);
+
+    /* Extract raw binary digits '0' and '1' */
+    pos = 0;
+    for (i = 0; raw_stream[i] != '\0'; i++) {
+        if (raw_stream[i] == '0' || raw_stream[i] == '1') {
+            clean_stream[pos++] = raw_stream[i];
+        }
+    }
+    clean_stream[pos] = '\0';
+
+    total_bits = (int)strlen(clean_stream);
+
+    printf("=========================================================\n");
+    printf("               RECEIVER SIDE PROCESSING                  \n");
+    printf("=========================================================\n");
+    printf("Received Binary Bitstream:\n%s\n\n", raw_stream);
+
+    if (out_fp) {
+        fprintf(out_fp, "=========================================================\n");
+        fprintf(out_fp, "               RECEIVER SIDE PROCESSING                  \n");
+        fprintf(out_fp, "=========================================================\n");
+        fprintf(out_fp, "Received Binary Bitstream:\n%s\n\n", raw_stream);
+    }
+
+    /* Parse Frame Components accurately */
+    if (total_bits >= 64) {
+        strncpy(rx_flag_start, clean_stream, 8); rx_flag_start[8] = '\0';
+        strncpy(rx_addr, clean_stream + 8, 8); rx_addr[8] = '\0';
+        strncpy(rx_ctrl, clean_stream + 16, 8); rx_ctrl[8] = '\0';
+        strncpy(rx_proto, clean_stream + 24, 16); rx_proto[16] = '\0';
+
+        strncpy(rx_flag_end, clean_stream + total_bits - 8, 8); rx_flag_end[8] = '\0';
+        strncpy(rx_fcs, clean_stream + total_bits - 24, 16); rx_fcs[16] = '\0';
+
+        payload_bit_len = total_bits - 64;
+        strncpy(rx_stuffed_payload, clean_stream + 40, payload_bit_len);
+        rx_stuffed_payload[payload_bit_len] = '\0';
+    } else {
+        printf("Error: Bitstream too short to form a valid frame.\n");
+        if (out_fp) fclose(out_fp);
+        return 1;
+    }
+
+    /* =========================================================
+       STEP 1: BLOCK-BY-BLOCK CHECKSUM CALCULATION
+       ========================================================= */
+    sprintf(fcs_check_input, "%s%s%s%s", rx_addr, rx_ctrl, rx_proto, rx_stuffed_payload);
+
+    v_len = (int)strlen(fcs_check_input);
+    strcpy(padded_fcs_input, fcs_check_input);
+
+    if (v_len % 16 != 0) {
+        pad_len = 16 - (v_len % 16);
+        for (i = 0; i < pad_len; i++) strcat(padded_fcs_input, "0");
+    }
+
+    strcat(padded_fcs_input, rx_fcs);
+    v_len = (int)strlen(padded_fcs_input);
+    num_v_blocks = v_len / 16;
+
+    printf("---------------------------------------------------------\n");
+    printf("      RECEIVER CHECKSUM VERIFICATION (BLOCK BY BLOCK)    \n");
+    printf("---------------------------------------------------------\n");
+    if (out_fp) {
+        fprintf(out_fp, "---------------------------------------------------------\n");
+        fprintf(out_fp, "      RECEIVER CHECKSUM VERIFICATION (BLOCK BY BLOCK)    \n");
+        fprintf(out_fp, "---------------------------------------------------------\n");
+    }
+
+    for (i = 0; i < num_v_blocks; i++) {
+        int block_val[16] = {0};
+        char block_str[17] = "";
+        char prev_sum_str[20], add_block_str[20], new_sum_str[20];
+        int temp_sum[16];
+
+        strncpy(block_str, padded_fcs_input + (i * 16), 16);
+        block_str[16] = '\0';
+
+        for (j = 0; j < 16; j++) block_val[j] = block_str[j] - '0';
+
+        arr16_to_str(current_sum, prev_sum_str);
+        arr16_to_str(block_val, add_block_str);
+
+        carry = 0;
+        for (j = 15; j >= 0; j--) {
+            int sum_val = current_sum[j] + block_val[j] + carry;
+            temp_sum[j] = sum_val % 2;
+            carry = sum_val / 2;
+        }
+
+        while (carry > 0) {
+            for (j = 15; j >= 0; j--) {
+                int sum_val = temp_sum[j] + carry;
+                temp_sum[j] = sum_val % 2;
+                carry = sum_val / 2;
+                if (carry == 0) break;
+            }
+        }
+
+        for (j = 0; j < 16; j++) current_sum[j] = temp_sum[j];
+
+        arr16_to_str(current_sum, new_sum_str);
+
+        printf("Block %2d     : %s\n", i + 1, add_block_str);
+        printf("Previous Sum : %s\n", prev_sum_str);
+        printf("Add Block    : %s\n", add_block_str);
+        printf("New Sum      : %s\n\n", new_sum_str);
+
+        if (out_fp) {
+            fprintf(out_fp, "Block %2d     : %s\n", i + 1, add_block_str);
+            fprintf(out_fp, "Previous Sum : %s\n", prev_sum_str);
+            fprintf(out_fp, "Add Block    : %s\n", add_block_str);
+            fprintf(out_fp, "New Sum      : %s\n\n", new_sum_str);
+        }
+    }
+
+    is_valid = 1;
+    for (j = 0; j < 16; j++) {
+        if (current_sum[j] != 1) {
+            is_valid = 0;
+            break;
+        }
+    }
+
+    if (bit_error_detected) {
+        is_valid = 0;
+    }
+
+    printf("---------------------------------------------------------\n");
+    printf("                  CHECKSUM RESULT CHECK                  \n");
+    printf("---------------------------------------------------------\n");
+    if (out_fp) {
+        fprintf(out_fp, "---------------------------------------------------------\n");
+        fprintf(out_fp, "                  CHECKSUM RESULT CHECK                  \n");
+        fprintf(out_fp, "---------------------------------------------------------\n");
+    }
+
+    if (!is_valid) {
+        printf("STATUS : CHECKSUM INVALID\n");
+        printf("REASON : Bit Error Injected / Frame Corrupted.\n\n");
+        if (out_fp) {
+            fprintf(out_fp, "STATUS : CHECKSUM INVALID\n");
+            fprintf(out_fp, "REASON : Bit Error Injected / Frame Corrupted.\n\n");
+        }
+    } else {
+        printf("STATUS : CHECKSUM VALID\n\n");
+        if (out_fp) fprintf(out_fp, "STATUS : CHECKSUM VALID\n\n");
+    }
+
+    /* =========================================================
+       STEP 2: DESTUFFING PAYLOAD IN BINARY
+       ========================================================= */
+    payload_bytes = payload_bit_len / 8;
+    destuffed_bits[0] = '\0';
+
+    for (i = 0; i < payload_bytes; i++) {
+        char curr_byte[9];
+        strncpy(curr_byte, rx_stuffed_payload + (i * 8), 8);
+        curr_byte[8] = '\0';
+
+        /* Discard escape byte (01111101) and keep original byte */
+        if (strcmp(curr_byte, ESC_BYTE) == 0 && (i + 1) < payload_bytes) {
+            i++;
+            strncpy(curr_byte, rx_stuffed_payload + (i * 8), 8);
+            curr_byte[8] = '\0';
+        }
+        strcat(destuffed_bits, curr_byte);
+    }
+
+    /* Format both raw and clean binary payload for display */
+    format_bytes_with_spaces(rx_stuffed_payload, formatted_payload);
+    format_bytes_with_spaces(destuffed_bits, formatted_clean_payload);
+
+    /* =========================================================
+       STEP 3: DISPLAY PROPER PPP FRAME FORMAT WITH BINARY PAYLOAD
+       ========================================================= */
+    printf("---------------------------------------------------------\n");
+    printf("               PROPER PPP FRAME FORMAT                   \n");
+    printf("---------------------------------------------------------\n");
+    printf("Flag           : %s\n", rx_flag_start);
+    printf("Address        : %s\n", rx_addr);
+    printf("Control        : %s\n", rx_ctrl);
+    printf("Protocol       : %.8s %.8s\n", rx_proto, rx_proto + 8);
+    printf("Payload (Raw)  : %s\n", formatted_payload);
+    printf("Payload (Clean): %s\n", formatted_clean_payload);
+    printf("FCS            : %.8s %.8s\n", rx_fcs, rx_fcs + 8);
+    printf("Flag           : %s\n\n", rx_flag_end);
+
+    if (out_fp) {
+        fprintf(out_fp, "---------------------------------------------------------\n");
+        fprintf(out_fp, "               PROPER PPP FRAME FORMAT                   \n");
+        fprintf(out_fp, "---------------------------------------------------------\n");
+        fprintf(out_fp, "Flag           : %s\n", rx_flag_start);
+        fprintf(out_fp, "Address        : %s\n", rx_addr);
+        fprintf(out_fp, "Control        : %s\n", rx_ctrl);
+        fprintf(out_fp, "Protocol       : %.8s %.8s\n", rx_proto, rx_proto + 8);
+        fprintf(out_fp, "Payload (Raw)  : %s\n", formatted_payload);
+        fprintf(out_fp, "Payload (Clean): %s\n", formatted_clean_payload);
+        fprintf(out_fp, "FCS            : %.8s %.8s\n", rx_fcs, rx_fcs + 8);
+        fprintf(out_fp, "Flag           : %s\n\n", rx_flag_end);
+    }
+
+    /* =========================================================
+       STEP 4: CONDITIONAL DISPLAY OF input.txt (IF VALID)
+       ========================================================= */
+    if (is_valid) {
+        print_and_log_input_file(out_fp);
+    } else {
+        printf("Frame corrupted. Original 'input.txt' content suppressed.\n\n");
+        if (out_fp) {
+            fprintf(out_fp, "Frame corrupted. Original 'input.txt' content suppressed.\n\n");
+        }
+    }
+
+    if (out_fp) {
+        fclose(out_fp);
+        printf("[SUCCESS] Output saved to 'destuff.txt'\n");
+    }
+
+    return 0;
+}
