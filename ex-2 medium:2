@@ -1,0 +1,45 @@
+#include <stdlib.h>
+
+int cmp(const void* a, const void* b) {
+    return (*(int*)a - *(int*)b);
+}
+
+int subarrayBitwiseORs(int* arr, int arrSize) {
+    int* results = (int*)malloc(sizeof(int) * arrSize * 32);
+    int resultsSize = 0;
+    
+    int leftBoundary = 0;
+    
+    for (int i = 0; i < arrSize; i++) {
+        int currentNum = arr[i];
+        int rightBoundary = resultsSize;
+        
+        results[resultsSize++] = currentNum;
+        
+        for (int j = leftBoundary; j < rightBoundary; j++) {
+            int newOrValue = results[j] | currentNum;
+            if (results[resultsSize - 1] != newOrValue) {
+                results[resultsSize++] = newOrValue;
+            }
+        }
+        
+        leftBoundary = rightBoundary;
+    }
+    
+    if (resultsSize == 0) {
+        free(results);
+        return 0;
+    }
+    
+    qsort(results, resultsSize, sizeof(int), cmp);
+    
+    int uniqueCount = 1;
+    for (int i = 1; i < resultsSize; i++) {
+        if (results[i] != results[i - 1]) {
+            uniqueCount++;
+        }
+    }
+    
+    free(results);
+    return uniqueCount;
+}
