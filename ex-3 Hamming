@@ -1,0 +1,241 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+// Function Prototypes
+int calculateParityBitsCount(int m);
+void setupHammingPositions(char *binaryStream, char *hammingCode, int totalBits);
+void calculateRedundancyBitsXOR(char *hammingCode, int totalBits, int r);
+
+int main() {
+    FILE *file;
+    char ch;
+    char binaryStream[2000] = ""; // Array to hold the file's binary data
+    int r, m, totalBits;
+
+
+    file = fopen("input.txt", "r");
+    if (file == NULL) {
+        printf("Error: Could not open input.txt. Please create this file first.\n");
+        return 1;
+    }
+
+    printf("Reading data from 'input.txt' and converting to binary...\n");
+    while ((ch = fgetc(file)) != EOF) {
+        if (ch == '\n' || ch == '\r') continue; // Skip formatting characters
+
+     
+        for (int i = 7; i >= 0; i--) {
+            if ((ch >> i) & 1) {
+                strcat(binaryStream, "1");
+            } else {
+                strcat(binaryStream, "0");
+            }
+        }
+    }
+    fclose(file);
+
+    m = strlen(binaryStream);
+    printf("Binary data from user (m = %d bits): %s\n\n", m, binaryStream);
+
+  
+    r = calculateParityBitsCount(m);
+    totalBits = m + r;
+
+    printf("Calculated parity bits needed (r) = %d\n", r);
+    printf("Total bits in Hamming Code structure (m + r) = %d\n\n", totalBits);
+
+  
+    hammingCode[totalBits] = '\0';
+
+    
+    setupHammingPositions(binaryStream, hammingCode, totalBits);
+    printf("Initial layout (0s placeholders at parity positions):\n%s\n\n", hammingCode);
+
+
+    calculateRedundancyBitsXOR(hammingCode, totalBits, r);
+
+  
+    printf("--- FINAL TRANSMITTED SENDER DATA ---\n");
+    printf("Generated Hamming Code: %s\n", hammingCode);
+
+    FILE *outputFile = fopen("sender.txt", "w");
+    if (outputFile == NULL) {
+        printf("Error: Could not create or open 'sender.txt' for writing.\n");
+        return 1;
+    }
+    fprintf(outputFile, "%s", hammingCode);
+    fclose(outputFile);
+    printf("Successfully transmitted and written data to 'sender.txt'\n\n");
+   
+    printf("Visual layout (1-indexed left-to-right):\n");
+    for (int i = 1; i <= totalBits; i++) {
+        printf("| %c ", hammingCode[i - 1]);
+    }
+    printf("|\n");
+    for (int i = 1; i <= totalBits; i++) {
+        printf("  %d ", i);
+    }
+    printf("\n");
+
+    return 0;
+}
+
+
+
+
+int calculateParityBitsCount(int m) {
+    int r = 1;
+    while (pow(2, r) < (m + r + 1)) {
+        r++;
+    }
+    return r;
+}
+
+void setupHammingPositions(char *binaryStream, char *hammingCode, int totalBits) {
+    int dataIndex = 0;
+    int powerOfTwo = 1;
+
+    for (int pos = 1; pos <= totalBits; pos++) {
+        if (pos == powerOfTwo) {
+            hammingCode[pos - 1] = '0';
+            powerOfTwo *= 2;
+        } else {
+            hammingCode[pos - 1] = binaryStream[dataIndex];
+            dataIndex++;
+        }
+    }
+}
+
+void calculateRedundancyBitsXOR(char *hammingCode, int totalBits, int r) {
+    for (int i = 0; i < r; i++) {
+        int rPos = (int)pow(2, i);
+        int xorResult = 0;        
+
+        for (int pos = 1; pos <= totalBits; pos++) {
+            if ((pos & rPos) != 0) {
+                if (pos != rPos) {
+                    int bitValue = hammingCode[pos - 1] - '0';
+                    xorResult = xorResult ^ bitValue; // Even parity calculation
+                }
+            }
+        }
+
+        hammingCode[rPos - 1] = (xorResult == 1) ? '1' : '0';
+    }
+}
+---------------------------------------------------------------------
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+void injectBitError(char *hammingCode);
+void processHammingReceiver(char *hammingCode);
+
+int main() {
+    FILE *file;
+    char receivedCode[2000] = "";
+
+    
+    file = fopen("sender.txt", "r");
+    if (file == NULL) {
+        printf("Error: Could not open 'sender.txt'. Run sender first!\n");
+        return 1;
+    }
+    fscanf(file, "%s", receivedCode);
+    fclose(file);
+
+    injectBitError(receivedCode);
+
+   
+    processHammingReceiver(receivedCode);
+
+    return 0;
+}
+
+
+void injectBitError(char *hammingCode) {
+    int totalBits = strlen(hammingCode);
+    int choice, errorPos;
+
+    printf("Received clean code from file: %s\n", hammingCode);
+    printf("Do you want to inject a transmission error? (1 = Yes, 0 = No): ");
+    scanf("%d", &choice);
+
+    if (choice == 1) {
+        printf("Enter bit position to corrupt/flip (1 to %d): ", totalBits);
+        scanf("%d", &errorPos);
+
+        if (errorPos >= 1 && errorPos <= totalBits) {
+            if (hammingCode[errorPos - 1] == '0') {
+                hammingCode[errorPos - 1] = '1';
+            } else {
+                hammingCode[errorPos - 1] = '0';
+            }
+            printf("[ALERT] Injected error! Corrupted code is now: %s\n\n", hammingCode);
+        } else {
+            printf("Invalid position. No error injected.\n\n");
+        }
+    } else {
+        printf("Proceeding with clean, perfect data.\n\n");
+    }
+}
+
+
+void processHammingReceiver(char *hammingCode) {
+    int totalBits = strlen(hammingCode);
+    int syndrome = 0;
+
+   
+    for (int pos = 1; pos <= totalBits; pos++) {
+        int bitValue = hammingCode[pos - 1] - '0';
+        if (bitValue == 1) {
+            syndrome = syndrome ^ pos;
+        }
+    }
+
+ 
+    if (syndrome == 0) {
+        printf("Display: \"No Error Detected\"\n\n");
+    }
+    else {
+        printf("Result: Syndrome = %d\n", syndrome);
+        printf("Locating erroneous bit... Found error at position: %d\n", syndrome);
+
+        // FLIP THE ERRONEOUS BIT (Error Correction)
+        if (hammingCode[syndrome - 1] == '0') {
+            hammingCode[syndrome - 1] = '1';
+        } else {
+            hammingCode[syndrome - 1] = '0';
+        }
+        printf("Display: \"Error Corrected\"\n");
+        printf("Fixed Hamming Code: %s\n\n", hammingCode);
+    }
+
+  
+    FILE *outputFile = fopen("receiver.txt", "w");
+    if (outputFile == NULL) {
+        printf("Error: Could not create or open 'receiver.txt' for writing.\n");
+        return;
+    }
+
+   
+    printf("Displaying Original Data: ");
+    int powerOfTwo = 1;
+    for (int pos = 1; pos <= totalBits; pos++) {
+        if (pos == powerOfTwo) {
+            powerOfTwo = powerOfTwo * 2;
+        } else {
+            printf("%c", hammingCode[pos - 1]);            
+            fprintf(outputFile, "%c", hammingCode[pos - 1]); 
+        }
+    }
+    printf("\n");
+   
+    fclose(outputFile); // Safely close file stream
+    printf("Successfully extracted and saved original data to 'receiver.txt'\n");
+}
+
+
