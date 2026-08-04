@@ -1,0 +1,329 @@
+
+#include <stdio.h>
+#include <string.h>
+
+
+void convertToBinaryMatrix(char *word, int binaryMatrix[100][8], int length);
+void calculateRowParity(int binaryMatrix[100][8], int rowParity[100], int length);
+void calculateColumnParity(int binaryMatrix[100][8], int colParity[8], int length);
+int calculateOverallParity(int rowParity[100], int length);
+void displayMatrix(char *word, int binaryMatrix[100][8], int rowParity[100], int colParity[8], int overallParity, int length);
+void writeMatrixToFile(int binaryMatrix[100][8], int rowParity[100], int colParity[8], int overallParity, int length);
+
+int main() {
+    char word[100];
+    int length;
+   
+
+    int binaryMatrix[100][8];
+    int rowParity[100];
+    int colParity[8];
+    int overallParity;
+
+
+    printf("Enter a word: ");
+    scanf("%s", word);
+   
+    length = strlen(word);
+
+    printf("\n=== 2D EVEN PARITY MATRIX ===\n");
+    printf("Input word: \"%s\"\n", word);
+    printf("Rows: %d   Cols: 8 (bits per char MSB..LSB)\n", length);
+    printf("Parity type: EVEN (row, column, overall)\n\n");
+
+ 
+    convertToBinaryMatrix(word, binaryMatrix, length);
+    calculateRowParity(binaryMatrix, rowParity, length);
+    calculateColumnParity(binaryMatrix, colParity, length);
+    overallParity = calculateOverallParity(rowParity, length);
+
+    displayMatrix(word, binaryMatrix, rowParity, colParity, overallParity, length);
+
+    writeMatrixToFile(binaryMatrix, rowParity, colParity, overallParity, length);
+
+    return 0;
+}
+
+
+void convertToBinaryMatrix(char *word, int binaryMatrix[100][8], int length) {
+    int r, bit, tempValue;
+   
+    for (r = 0; r < length; r++) {
+        tempValue = (int)word[r];
+        for (bit = 7; bit >= 0; bit--) {
+            binaryMatrix[r][bit] = tempValue % 2;
+            tempValue = tempValue / 2;            
+        }
+    }
+}
+
+
+void calculateRowParity(int binaryMatrix[100][8], int rowParity[100], int length) {
+    int r, c, countOnes;
+    for (r = 0; r < length; r++) {
+        countOnes = 0;
+        for (c = 0; c < 8; c++) {
+            if (binaryMatrix[r][c] == 1) {
+                countOnes++;
+            }
+        }
+        rowParity[r] = (countOnes % 2 == 1) ? 1 : 0;
+    }
+}
+
+
+void calculateColumnParity(int binaryMatrix[100][8], int colParity[8], int length) {
+    int r, c, countOnes;
+    for (c = 0; c < 8; c++) {
+        countOnes = 0;
+        for (r = 0; r < length; r++) {
+            if (binaryMatrix[r][c] == 1) {
+                countOnes++;
+            }
+        }
+        colParity[c] = (countOnes % 2 == 1) ? 1 : 0;
+    }
+}
+
+
+int calculateOverallParity(int rowParity[100], int length) {
+    int r, countOnes = 0;
+    for (r = 0; r < length; r++) {
+        if (rowParity[r] == 1) {
+            countOnes++;
+        }
+    }
+    return (countOnes % 2 == 1) ? 1 : 0;
+}
+
+void displayMatrix(char *word, int binaryMatrix[100][8], int rowParity[100], int colParity[8], int overallParity, int length) {
+    int r, c;
+
+    printf("-------------------------------------------------\n");
+    printf("| R | Char | b7 b6 b5 b4 b3 b2 b1 b0 | RParity |\n");
+    printf("-------------------------------------------------\n");
+
+    for (r = 0; r < length; r++) {
+        printf("| %d |  %c   | ", r + 1, word[r]);
+        for (c = 0; c < 8; c++) {
+            printf("%d ", binaryMatrix[r][c]);
+        }
+        printf("|   %d     |\n", rowParity[r]);
+    }
+
+    printf("-------------------------------------------------\n");
+    printf("|    | CParity | ");
+    for (c = 0; c < 8; c++) {
+        printf("%d ", colParity[c]);
+    }
+    printf("| OvrP=%d |\n", overallParity);
+    printf("-------------------------------------------------\n");
+}
+
+void writeMatrixToFile(int binaryMatrix[100][8], int rowParity[100], int colParity[8], int overallParity, int length) {
+    int r, c;
+    FILE *file = fopen("parity.txt", "w");
+   
+    if (file == NULL) {
+        printf("Error: Could not create output destination file 'parity.txt'\n");
+        return;
+    }
+
+  
+    fprintf(file, "%d 8\n", length);
+
+
+    for (r = 0; r < length; r++) {
+        for (c = 0; c < 8; c++) {
+            fprintf(file, "%d ", binaryMatrix[r][c]);
+        }
+        fprintf(file, "%d\n", rowParity[r]); // Row Parity at the end of the line
+    }
+
+
+    for (c = 0; c < 8; c++) {
+        fprintf(file, "%d ", colParity[c]);
+    }
+    fprintf(file, "%d\n", overallParity); // Overall Parity at the very end
+
+    fclose(file);
+    printf("Matrix array trace written successfully into 'parity.txt'\n");
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+void readMatrixFromFile(char *filename, int matrix[100][8], int rowParity[100], int colParity[8], int *overallParity, int *rows);
+void displayCurrentState(int matrix[100][8], int rowParity[100], int colParity[8], int overallParity, int rows);
+void injectMultipleErrors(int matrix[100][8], int rows);
+int checkEvenParityErrors(int matrix[100][8], int rowParity[100], int colParity[8], int overallParity, int rows);
+void writeReceiverOutputToFile(int matrix[100][8], int rowParity[100], int colParity[8], int overallParity, int rows, int errorDetected);
+
+int main() {
+    char filename[100];
+    int matrix[100][8];
+    int rowParity[100];
+    int colParity[8];
+    int overallParity = 0;
+    int rows = 0;
+    int errorDetected = 0;
+
+
+    printf("Enter input filename containing 2D-parity matrix: ");
+    scanf("%s", filename);
+
+    // 2. Parse file contents into arrays using our method
+    readMatrixFromFile(filename, matrix, rowParity, colParity, &overallParity, &rows);
+    if (rows == 0) {
+        return 1; // File read failed
+    }
+
+    printf("\nRead matrix (%d rows x 8 cols):\n", rows);
+    displayCurrentState(matrix, rowParity, colParity, overallParity, rows);
+
+    // 3. User injects bit changes
+    injectMultipleErrors(matrix, rows);
+
+    // 4. Show the modified matrix layout
+    printf("\nModified matrix:\n");
+    displayCurrentState(matrix, rowParity, colParity, overallParity, rows);
+
+    // 5. Run Even Parity integrity calculation checks
+    errorDetected = checkEvenParityErrors(matrix, rowParity, colParity, overallParity, rows);
+
+    // 6. Write final modified grid and results out to receiver2d.txt
+    writeReceiverOutputToFile(matrix, rowParity, colParity, overallParity, rows, errorDetected);
+
+    return 0;
+}
+
+void readMatrixFromFile(char *filename, int matrix[100][8], int rowParity[100], int colParity[8], int *overallParity, int *rows) {
+    FILE *file = fopen(filename, "r");
+    int fileRows, fileCols, r, c;
+
+    if (file == NULL) {
+        printf("Error: Could not open file %s\n", filename);
+        return;
+    }
+
+    fscanf(file, "%d %d", &fileRows, &fileCols);
+    *rows = fileRows;
+
+    for (r = 0; r < fileRows; r++) {
+        for (c = 0; c < 8; c++) {
+            fscanf(file, "%d", &matrix[r][c]);
+        }
+        fscanf(file, "%d", &rowParity[r]);
+    }
+
+    for (c = 0; c < 8; c++) {
+        fscanf(file, "%d", &colParity[c]);
+    }
+    fscanf(file, "%d", overallParity);
+
+    fclose(file);
+}
+
+
+void displayCurrentState(int matrix[100][8], int rowParity[100], int colParity[8], int overallParity, int rows) {
+    int r, c;
+    for (r = 0; r < rows; r++) {
+        for (c = 0; c < 8; c++) {
+            printf("%d ", matrix[r][c]);
+        }
+        printf("   %d\n", rowParity[r]);
+    }
+}
+
+
+void injectMultipleErrors(int matrix[100][8], int rows) {
+    int changes, i, rPos, cPos;
+
+    printf("\nHow many times to change the bit? ");
+    scanf("%d", &changes);
+
+    for (i = 0; i < changes; i++) {
+        printf("Enter row position (1 to %d) and column position (1 to 8) separated by space: ", rows);
+        scanf("%d %d", &rPos, &cPos);
+
+        if (rPos >= 1 && rPos <= rows && cPos >= 1 && cPos <= 8) {
+            matrix[rPos - 1][cPos - 1] = (matrix[rPos - 1][cPos - 1] == 1) ? 0 : 1;
+            printf("Bit at Row %d, Col %d flipped successfully.\n", rPos, cPos);
+        } else {
+            printf("Invalid position entered. Skipping this flip iteration.\n");
+        }
+    }
+}
+
+
+int checkEvenParityErrors(int matrix[100][8], int rowParity[100], int colParity[8], int overallParity, int rows) {
+    int r, c, countOnes;
+    int calculatedRowP, calculatedColP;
+    int errorFlag = 0;
+
+    for (r = 0; r < rows; r++) {
+        countOnes = 0;
+        for (c = 0; c < 8; c++) {
+            if (matrix[r][c] == 1) {
+                countOnes++;
+            }
+        }
+        calculatedRowP = (countOnes % 2 == 1) ? 1 : 0;
+        if (calculatedRowP != rowParity[r]) {
+            errorFlag = 1;
+        }
+    }
+
+    for (c = 0; c < 8; c++) {
+        countOnes = 0;
+        for (r = 0; r < rows; r++) {
+            if (matrix[r][c] == 1) {
+                countOnes++;
+            }
+        }
+        calculatedColP = (countOnes % 2 == 1) ? 1 : 0;
+        if (calculatedColP != colParity[c]) {
+            errorFlag = 1;
+        }
+    }
+
+    if (errorFlag == 1) {
+        printf("\nFinal result: Parity errors detected.\n");
+    } else {
+        printf("\nFinal result: No errors detected.\n");
+    }
+
+    return errorFlag;
+}
+
+
+void writeReceiverOutputToFile(int matrix[100][8], int rowParity[100], int colParity[8], int overallParity, int rows, int errorDetected) {
+    int r, c;
+    FILE *file = fopen("receiver2d.txt", "w");
+
+    if (file == NULL) {
+        printf("Error: Could not create output destination file 'receiver2d.txt'\n");
+        return;
+    }
+
+ 
+    fprintf(file, "Modified matrix:\n");
+    for (r = 0; r < rows; r++) {
+        for (c = 0; c < 8; c++) {
+            fprintf(file, "%d ", matrix[r][c]);
+        }
+        fprintf(file, "   %d\n", rowParity[r]);
+    }
+
+    if (errorDetected == 1) {
+        fprintf(file, "\nFinal result: Parity errors detected.\n");
+    } else {
+        fprintf(file, "\nFinal result: No errors detected.\n");
+    }
+
+    fclose(file);
+    printf("Receiver data and checks saved successfully to 'receiver2d.txt'\n");
+}
+
