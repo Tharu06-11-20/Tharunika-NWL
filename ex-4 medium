@@ -1,0 +1,190 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+#include <stdbool.h>
+
+#define INF INT_MAX
+
+typedef struct Edge {
+    int to;
+    int weight;
+    struct Edge* next;
+} Edge;
+
+typedef struct HeapNode {
+    int node;
+    int dist;
+} HeapNode;
+
+typedef struct MinHeap {
+    int size;
+    int capacity;
+    int* pos;
+    HeapNode** array;
+} MinHeap;
+
+Edge* createEdge(int to, int weight) {
+    Edge* edge = (Edge*)malloc(sizeof(Edge));
+    edge->to = to;
+    edge->weight = weight;
+    edge->next = NULL;
+    return edge;
+}
+
+HeapNode* newHeapNode(int v, int dist) {
+    HeapNode* minHeapNode = (HeapNode*)malloc(sizeof(HeapNode));
+    minHeapNode->node = v;
+    minHeapNode->dist = dist;
+    return minHeapNode;
+}
+
+MinHeap* createMinHeap(int capacity) {
+    MinHeap* minHeap = (MinHeap*)malloc(sizeof(MinHeap));
+    minHeap->pos = (int*)malloc((capacity + 1) * sizeof(int));
+    minHeap->size = 0;
+    minHeap->capacity = capacity;
+    minHeap->array = (HeapNode**)malloc((capacity + 1) * sizeof(HeapNode*));
+    return minHeap;
+}
+
+void swapHeapNode(HeapNode** a, HeapNode** b) {
+    HeapNode* t = *a;
+    *a = *b;
+    *b = t;
+}
+
+void minHeapify(MinHeap* minHeap, int idx) {
+    int smallest, left, right;
+    smallest = idx;
+    left = 2 * idx + 1;
+    right = 2 * idx + 2;
+
+    if (left < minHeap->size && minHeap->array[left]->dist < minHeap->array[smallest]->dist)
+        smallest = left;
+
+    if (right < minHeap->size && minHeap->array[right]->dist < minHeap->array[smallest]->dist)
+        smallest = right;
+
+    if (smallest != idx) {
+        HeapNode* smallestNode = minHeap->array[smallest];
+        HeapNode* idxNode = minHeap->array[idx];
+
+        minHeap->pos[smallestNode->node] = idx;
+        minHeap->pos[idxNode->node] = smallest;
+
+        swapHeapNode(&minHeap->array[smallest], &minHeap->array[idx]);
+
+        minHeapify(minHeap, smallest);
+    }
+}
+
+bool isEmpty(MinHeap* minHeap) {
+    return minHeap->size == 0;
+}
+
+**HeapNode* extractMin(MinHeap* minHeap)** {
+    if (isEmpty(minHeap)) return NULL;
+
+    HeapNode* root = minHeap->array[0];
+    HeapNode* lastNode = minHeap->array[minHeap->size - 1];
+
+    minHeap->array[0] = lastNode;
+    minHeap->pos[root->node] = minHeap->size - 1;
+    minHeap->pos[lastNode->node] = 0;
+
+    --minHeap->size;
+    minHeapify(minHeap, 0);
+
+    return root;
+}
+
+void decreaseKey(MinHeap* minHeap, int v, int dist) {
+    int i = minHeap->pos[v];
+    minHeap->array[i]->dist = dist;
+
+    while (i && minHeap->array[i]->dist < minHeap->array[(i - 1) / 2]->dist) {
+        minHeap->pos[minHeap->array[i]->node] = (i - 1) / 2;
+        minHeap->pos[minHeap->array[(i - 1) / 2]->node] = i;
+        swapHeapNode(&minHeap->array[i], &minHeap->array[(i - 1) / 2]);
+
+        i = (i - 1) / 2;
+    }
+}
+
+bool isInMinHeap(MinHeap* minHeap, int v) {
+    if (minHeap->pos[v] < minHeap->size) return true;
+    return false;
+}
+
+int networkDelayTime(int** times, int timesSize, int* timesColSize, int n, int k) {
+    Edge** graph = (Edge**)calloc((n + 1), sizeof(Edge*));
+    for (int i = 0; i < timesSize; i++) {
+        int u = times[i][0];
+        int v = times[i][1];
+        int w = times[i][2];
+        Edge* edge = createEdge(v, w);
+        edge->next = graph[u];
+        graph[u] = edge;
+    }
+
+    int* dist = (int*)malloc((n + 1) * sizeof(int));
+    MinHeap* minHeap = createMinHeap(n);
+
+    for (int v = 1; v <= n; ++v) {
+        dist[v] = INF;
+        minHeap->array[v - 1] = newHeapNode(v, dist[v]);
+        minHeap->pos[v] = v - 1;
+    }
+
+    dist[k] = 0;
+    decreaseKey(minHeap, k, dist[k]);
+    minHeap->size = n;
+
+    while (!isEmpty(minHeap)) {
+        HeapNode* minHeapNode = extractMin(minHeap);
+        int u = minHeapNode->node;
+        free(minHeapNode);
+
+        if (dist[u] == INF) break;
+
+        Edge* curr = graph[u];
+        while (curr != NULL) {
+            int v = curr->to;
+            if (isInMinHeap(minHeap, v) && dist[u] != INF && dist[u] + curr->weight < dist[v]) {
+                dist[v] = dist[u] + curr->weight;
+                decreaseKey(minHeap, v, dist[v]);
+            }
+            curr = curr->next;
+        }
+    }
+
+    int maxTime = 0;
+    for (int i = 1; i <= n; i++) {
+        if (dist[i] == INF) {
+            maxTime = -1;
+            break;
+        }
+        if (dist[i] > maxTime) {
+            maxTime = dist[i];
+        }
+    }
+
+    for (int i = 1; i <= n; i++) {
+        Edge* curr = graph[i];
+        while (curr != NULL) {
+            Edge* temp = curr;
+            curr = curr->next;
+            free(temp);
+        }
+    }
+    free(graph);
+    free(dist);
+    free(minHeap->pos);
+    for (int i = 0; i < minHeap->size; i++) {
+        free(minHeap->array[i]);
+    }
+    free(minHeap->array);
+    free(minHeap);
+
+    return maxTime;
+}
