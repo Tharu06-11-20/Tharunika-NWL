@@ -1,0 +1,123 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 8080
+#define SIZE 1024
+
+
+void reverse_recursive(char *str, int start, int end)
+{
+    if (start >= end)
+    {
+        return;
+    }
+    // Swap characters
+    char temp = str[start];
+    str[start] = str[end];
+    str[end] = temp;
+
+
+    reverse_recursive(str, start + 1, end - 1);
+}
+
+int main()
+{
+    int sockfd;
+    char buffer[SIZE];
+
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t client_len = sizeof(client_addr);
+
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        printf("Socket creation failed\n");
+        return 1;
+    }
+
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
+
+    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        printf("Bind failed\n");
+        return 1;
+    }
+
+    printf("UDP Recursive Reverse Server started...\n");
+    printf("Waiting for client message...\n");
+
+    int n = recvfrom(sockfd, buffer, SIZE - 1, 0,
+                     (struct sockaddr *)&client_addr, &client_len);
+    buffer[n] = '\0';
+
+    printf("Received: %s\n", buffer);
+
+
+    if (n > 0)
+    {
+        reverse_recursive(buffer, 0, n - 1);
+    }
+
+    printf("Reversed string: %s\n", buffer);
+
+    sendto(sockfd, buffer, n, 0,
+           (struct sockaddr *)&client_addr, client_len);
+
+    close(sockfd);
+    return 0;
+}
+-------------------------------------------------------------------------------------------
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 8080
+#define SIZE 1024
+
+int main()
+{
+    int sockfd;
+    char message[SIZE];
+    char buffer[SIZE];
+
+    struct sockaddr_in server_addr;
+    socklen_t server_len = sizeof(server_addr);
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        printf("Socket creation failed\n");
+        return 1;
+    }
+
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(PORT);
+    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    printf("Enter string to reverse: ");
+    fgets(message, SIZE, stdin);
+    message[strcspn(message, "\n")] = '\0'; // Remove newline
+
+    sendto(sockfd, message, strlen(message), 0,
+           (struct sockaddr *)&server_addr, server_len);
+
+   
+    int n = recvfrom(sockfd, buffer, SIZE - 1, 0,
+                     (struct sockaddr *)&server_addr, &server_len);
+    buffer[n] = '\0';
+
+    printf("Reverse received from server: %s\n", buffer);
+
+    close(sockfd);
+    return 0;
+}
