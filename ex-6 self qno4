@@ -1,0 +1,474 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 8081
+
+struct Book {
+    int id;
+    char title[50];
+    char author[50];
+    int available;
+};
+
+struct Book books[4] = {
+    {101, "C Programming", "Dennis Ritchie", 1},
+    {102, "Operating Systems", "Galvin", 1},
+    {103, "Computer Networks", "Tanenbaum", 0},
+    {104, "Database Systems", "Korth", 1}
+};
+
+void save_records()
+{
+    FILE *fp = fopen("library.txt", "w");
+
+    if (fp != NULL) {
+        for (int i = 0; i < 4; i++) {
+            fprintf(fp, "%d %s %s %d\n",
+                    books[i].id,
+                    books[i].title,
+                    books[i].author,
+                    books[i].available);
+        }
+
+        fclose(fp);
+    }
+}
+
+void show_books(int client)
+{
+    char message[1500] = "--- Book Catalog ---\n";
+
+    for (int i = 0; i < 4; i++) {
+        char temp[200];
+
+        sprintf(temp,
+                "ID: %d | Title: %s | Author: %s | %s\n",
+                books[i].id,
+                books[i].title,
+                books[i].author,
+                books[i].available ? "Available" : "Issued");
+
+        strcat(message, temp);
+    }
+
+    send(client, message, strlen(message), 0);
+}
+
+void handle_client(int client)
+{
+    char buffer[1024];
+    int choice;
+
+    while (1) {
+
+        char menu[] =
+            "\n--- College Library ---\n"
+            "1. View Books\n"
+            "2. Search by Title\n"
+            "3. Search by Author\n"
+            "4. Check Availability\n"
+            "5. Issue Book\n"
+            "6. Return Book\n"
+            "7. View Book Details\n"
+            "8. Exit\n"
+            "Enter choice: ";
+
+        send(client, menu, strlen(menu), 0);
+
+        memset(buffer, 0, sizeof(buffer));
+
+        if (recv(client, buffer, sizeof(buffer) - 1, 0) <= 0)
+            break;
+
+        choice = atoi(buffer);
+
+        if (choice == 1) {
+            show_books(client);
+        }
+
+        else if (choice == 2) {
+
+            send(client,
+                 "Enter title: ",
+                 14, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            buffer[strcspn(buffer, "\n")] = '\0';
+
+            int found = 0;
+
+            for (int i = 0; i < 4; i++) {
+
+                if (strstr(books[i].title, buffer) != NULL) {
+
+                    char result[200];
+
+                    sprintf(result,
+                            "Found: %d - %s - %s - %s\n",
+                            books[i].id,
+                            books[i].title,
+                            books[i].author,
+                            books[i].available ?
+                            "Available" : "Issued");
+
+                    send(client,
+                         result,
+                         strlen(result),
+                         0);
+
+                    found = 1;
+                }
+            }
+
+            if (!found)
+                send(client,
+                     "Book not found.\n",
+                     16, 0);
+        }
+
+        else if (choice == 3) {
+
+            send(client,
+                 "Enter author: ",
+                 15, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            buffer[strcspn(buffer, "\n")] = '\0';
+
+            int found = 0;
+
+            for (int i = 0; i < 4; i++) {
+
+                if (strstr(books[i].author, buffer) != NULL) {
+
+                    char result[200];
+
+                    sprintf(result,
+                            "Found: %d - %s - %s\n",
+                            books[i].id,
+                            books[i].title,
+                            books[i].available ?
+                            "Available" : "Issued");
+
+                    send(client,
+                         result,
+                         strlen(result),
+                         0);
+
+                    found = 1;
+                }
+            }
+
+            if (!found)
+                send(client,
+                     "Author not found.\n",
+                     19, 0);
+        }
+
+        else if (choice == 4) {
+
+            send(client,
+                 "Enter Book ID: ",
+                 16, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            int id = atoi(buffer);
+            int found = 0;
+
+            for (int i = 0; i < 4; i++) {
+
+                if (books[i].id == id) {
+
+                    if (books[i].available)
+                        send(client,
+                             "Book is available.\n",
+                             21, 0);
+                    else
+                        send(client,
+                             "Book is currently issued.\n",
+                             29, 0);
+
+                    found = 1;
+                }
+            }
+
+            if (!found)
+                send(client,
+                     "Invalid Book ID.\n",
+                     18, 0);
+        }
+
+        else if (choice == 5) {
+
+            send(client,
+                 "Enter Book ID to issue: ",
+                 25, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            int id = atoi(buffer);
+            int found = 0;
+
+            for (int i = 0; i < 4; i++) {
+
+                if (books[i].id == id) {
+
+                    found = 1;
+
+                    if (books[i].available) {
+
+                        books[i].available = 0;
+                        save_records();
+
+                        send(client,
+                             "Book issued successfully.\n",
+                             28, 0);
+                    }
+                    else {
+
+                        send(client,
+                             "Book is already issued.\n",
+                             26, 0);
+                    }
+                }
+            }
+
+            if (!found)
+                send(client,
+                     "Invalid Book ID.\n",
+                     18, 0);
+        }
+
+        else if (choice == 6) {
+
+            send(client,
+                 "Enter Book ID to return: ",
+                 26, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            int id = atoi(buffer);
+            int found = 0;
+
+            for (int i = 0; i < 4; i++) {
+
+                if (books[i].id == id) {
+
+                    found = 1;
+
+                    if (!books[i].available) {
+
+                        books[i].available = 1;
+                        save_records();
+
+                        send(client,
+                             "Book returned successfully.\n",
+                             29, 0);
+                    }
+                    else {
+
+                        send(client,
+                             "Book was not issued.\n",
+                             23, 0);
+                    }
+                }
+            }
+
+            if (!found)
+                send(client,
+                     "Invalid Book ID.\n",
+                     18, 0);
+        }
+
+        else if (choice == 7) {
+
+            send(client,
+                 "Enter Book ID: ",
+                 16, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            int id = atoi(buffer);
+            int found = 0;
+
+            for (int i = 0; i < 4; i++) {
+
+                if (books[i].id == id) {
+
+                    char result[300];
+
+                    sprintf(result,
+                            "ID: %d\nTitle: %s\nAuthor: %s\nStatus: %s\n",
+                            books[i].id,
+                            books[i].title,
+                            books[i].author,
+                            books[i].available ?
+                            "Available" : "Issued");
+
+                    send(client,
+                         result,
+                         strlen(result),
+                         0);
+
+                    found = 1;
+                }
+            }
+
+            if (!found)
+                send(client,
+                     "Invalid Book ID.\n",
+                     18, 0);
+        }
+
+        else if (choice == 8) {
+
+            send(client,
+                 "Thank you. Connection closed.\n",
+                 32, 0);
+
+            break;
+        }
+
+        else {
+
+            send(client,
+                 "Invalid choice.\n",
+                 17, 0);
+        }
+    }
+}
+
+int main()
+{
+    int server_fd, client_fd;
+
+    struct sockaddr_in server, client;
+
+    socklen_t client_len = sizeof(client);
+
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (server_fd < 0) {
+        perror("Socket failed");
+        exit(1);
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(PORT);
+
+    if (bind(server_fd,
+             (struct sockaddr *)&server,
+             sizeof(server)) < 0) {
+
+        perror("Bind failed");
+        exit(1);
+    }
+
+    listen(server_fd, 5);
+
+    printf("Library TCP Server started...\n");
+
+    while (1) {
+
+        printf("Waiting for client...\n");
+
+        client_fd = accept(server_fd,
+                           (struct sockaddr *)&client,
+                           &client_len);
+
+        if (client_fd < 0) {
+            perror("Accept failed");
+            continue;
+        }
+
+        printf("Client connected.\n");
+
+        handle_client(client_fd);
+
+        close(client_fd);
+
+        printf("Client disconnected.\n");
+    }
+
+    close(server_fd);
+
+    return 0;
+}
+-------------------------------------------------------------------------------------------------------------
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 8081
+
+int main()
+{
+    int sock;
+    struct sockaddr_in server;
+    char buffer[1024];
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (sock < 0)
+    {
+        perror("Socket creation failed");
+        return 1;
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+    server.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    if (connect(sock,
+                (struct sockaddr *)&server,
+                sizeof(server)) < 0)
+    {
+        perror("Connection failed");
+        return 1;
+    }
+
+    while (1)
+    {
+        memset(buffer, 0, sizeof(buffer));
+
+        if (recv(sock, buffer, sizeof(buffer) - 1, 0) <= 0)
+            break;
+
+        printf("%s", buffer);
+
+        fgets(buffer, sizeof(buffer), stdin);
+
+        send(sock, buffer, strlen(buffer), 0);
+
+        if (buffer[0] == '8')
+            break;
+
+        memset(buffer, 0, sizeof(buffer));
+
+        if (recv(sock, buffer, sizeof(buffer) - 1, 0) <= 0)
+            break;
+
+        printf("%s", buffer);
+
+        if (strstr(buffer, "Connection closed") != NULL)
+            break;
+    }
+
+    close(sock);
+
+    return 0;
+}
