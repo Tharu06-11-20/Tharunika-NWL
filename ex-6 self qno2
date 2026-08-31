@@ -1,0 +1,282 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 8080
+
+struct Doctor {
+    char name[30];
+    char specialty[30];
+    int slots;
+};
+
+struct Doctor doctors[3] = {
+    {"Dr. Kumar", "Cardiologist", 3},
+    {"Dr. Priya", "Dentist", 2},
+    {"Dr. Arun", "Neurologist", 4}
+};
+
+void log_activity(char *activity)
+{
+    FILE *fp = fopen("hospital_log.txt", "a");
+
+    if (fp != NULL) {
+        fprintf(fp, "%s\n", activity);
+        fclose(fp);
+    }
+}
+
+void send_schedule(int client)
+{
+    char message[1000] = "Doctor Schedules:\n";
+
+    for (int i = 0; i < 3; i++) {
+        char temp[150];
+
+        sprintf(temp, "%d. %s - %s - Available Slots: %d\n",
+                i + 1,
+                doctors[i].name,
+                doctors[i].specialty,
+                doctors[i].slots);
+
+        strcat(message, temp);
+    }
+
+    send(client, message, strlen(message), 0);
+}
+
+void handle_client(int client)
+{
+    char buffer[1024];
+    int choice;
+
+    while (1) {
+        char menu[] =
+            "\n--- Hospital Appointment System ---\n"
+            "1. View Doctor Schedule\n"
+            "2. Book Appointment\n"
+            "3. Cancel Appointment\n"
+            "4. Search Doctor Availability\n"
+            "5. View Appointment History\n"
+            "6. Exit\n"
+            "Enter choice: ";
+
+        send(client, menu, strlen(menu), 0);
+
+        memset(buffer, 0, sizeof(buffer));
+
+        if (recv(client, buffer, sizeof(buffer) - 1, 0) <= 0)
+            break;
+
+        choice = atoi(buffer);
+
+        if (choice == 1) {
+            send_schedule(client);
+            log_activity("Viewed doctor schedules");
+        }
+
+        else if (choice == 2) {
+            send(client, "Enter doctor number: ", 21, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            int d = atoi(buffer);
+
+            if (d >= 1 && d <= 3 && doctors[d - 1].slots > 0) {
+                doctors[d - 1].slots--;
+
+                send(client,
+                     "Appointment booked successfully.\n",
+                     36, 0);
+
+                log_activity("Appointment booked");
+            }
+            else {
+                send(client,
+                     "Invalid doctor or no slots available.\n",
+                     40, 0);
+            }
+        }
+
+        else if (choice == 3) {
+            send(client,
+                 "Enter doctor number for cancellation: ",
+                 40, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            int d = atoi(buffer);
+
+            if (d >= 1 && d <= 3) {
+                doctors[d - 1].slots++;
+
+                send(client,
+                     "Appointment cancelled successfully.\n",
+                     38, 0);
+
+                log_activity("Appointment cancelled");
+            }
+            else {
+                send(client,
+                     "Invalid doctor number.\n",
+                     24, 0);
+            }
+        }
+
+        else if (choice == 4) {
+            send(client,
+                 "Enter doctor number: ",
+                 22, 0);
+
+            memset(buffer, 0, sizeof(buffer));
+            recv(client, buffer, sizeof(buffer) - 1, 0);
+
+            int d = atoi(buffer);
+
+            if (d >= 1 && d <= 3) {
+                char result[200];
+
+                sprintf(result,
+                        "%s has %d available slots.\n",
+                        doctors[d - 1].name,
+                        doctors[d - 1].slots);
+
+                send(client, result, strlen(result), 0);
+                log_activity("Checked doctor availability");
+            }
+            else {
+                send(client,
+                     "Invalid doctor number.\n",
+                     24, 0);
+            }
+        }
+
+        else if (choice == 5) {
+            send(client,
+                 "Appointment history is displayed from server log.\n",
+                 53, 0);
+
+            log_activity("Viewed appointment history");
+        }
+
+        else if (choice == 6) {
+            send(client,
+                 "Thank you. Connection closed.\n",
+                 32, 0);
+            break;
+        }
+
+        else {
+            send(client,
+                 "Invalid choice.\n",
+                 17, 0);
+        }
+    }
+}
+
+int main()
+{
+    int server_fd, client_fd;
+    struct sockaddr_in server, client;
+    socklen_t client_len = sizeof(client);
+
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (server_fd < 0) {
+        perror("Socket creation failed");
+        exit(1);
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(PORT);
+
+    if (bind(server_fd,
+             (struct sockaddr *)&server,
+             sizeof(server)) < 0) {
+        perror("Bind failed");
+        exit(1);
+    }
+
+    listen(server_fd, 5);
+
+    printf("Hospital TCP Server started...\n");
+
+    while (1) {
+        printf("Waiting for client...\n");
+
+        client_fd = accept(server_fd,
+                           (struct sockaddr *)&client,
+                           &client_len);
+
+        if (client_fd < 0) {
+            perror("Accept failed");
+            continue;
+        }
+
+        printf("Client connected.\n");
+
+        handle_client(client_fd);
+
+        close(client_fd);
+
+        printf("Client disconnected.\n");
+    }
+
+    close(server_fd);
+
+    return 0;
+}
+----------------------------------------------------------------------------------------------
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 8080
+
+int main()
+{
+    int sock;
+    struct sockaddr_in server;
+    char buffer[1024];
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+    server.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    connect(sock,
+            (struct sockaddr *)&server,
+            sizeof(server));
+
+    while (1) {
+        memset(buffer, 0, sizeof(buffer));
+
+        recv(sock, buffer, sizeof(buffer) - 1, 0);
+        printf("%s", buffer);
+
+        fgets(buffer, sizeof(buffer), stdin);
+        send(sock, buffer, strlen(buffer), 0);
+
+        if (buffer[0] == '6')
+            break;
+
+        memset(buffer, 0, sizeof(buffer));
+        recv(sock, buffer, sizeof(buffer) - 1, 0);
+
+        printf("%s", buffer);
+
+        if (strstr(buffer, "Connection closed") != NULL)
+            break;
+    }
+
+    close(sock);
+
+    return 0;
+}
