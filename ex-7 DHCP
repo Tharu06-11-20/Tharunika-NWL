@@ -1,0 +1,370 @@
+[24bcs160@mepcolinux ex7]$cat serdhcp.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <signal.h>
+
+#define PORT 8030
+#define MAX 20
+
+struct Subnet
+{
+    int network;
+    int hostBits;
+    int prefix;
+    int total;
+    int available;
+    int block;
+    int required;
+};
+
+
+void handle_zombie(int sig)
+{
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+}
+
+int main()
+{
+    int sockfd;
+    struct sockaddr_in server, client;
+    socklen_t clientSize;
+
+    struct Subnet subnet[MAX];
+
+    int a, b, c, d;
+    int prefix;
+    int n;
+    int i;
+
+    printf("\n================ CONCURRENT DHCP SERVER ================\n\n");
+
+    printf("Enter Base Address : ");
+    if(scanf("%d.%d.%d.%d", &a, &b, &c, &d) != 4) return 1;
+
+    printf("Enter Prefix       : ");
+    if(scanf("%d", &prefix) != 1) return 1;
+
+    printf("Enter Number of Subnets : ");
+    if(scanf("%d", &n) != 1) return 1;
+
+    for (i = 0; i < n; i++)
+    {
+        printf("\nEnter Address Space Required for Subnet %d : ", i + 1);
+        if(scanf("%d", &subnet[i].required) != 1) return 1;
+
+        subnet[i].hostBits = 0;
+        while ((1 << subnet[i].hostBits) - 2 < subnet[i].required)
+        {
+            subnet[i].hostBits++;
+        }
+
+        subnet[i].prefix = 32 - subnet[i].hostBits;
+        subnet[i].total = 1 << subnet[i].hostBits;
+        subnet[i].available = subnet[i].total - 2;
+        subnet[i].block = subnet[i].total;
+    }
+
+    printf("\n\nCalculating Subnet Details...\n\n");
+    printf("Base Network       : %d.%d.%d.%d/%d\n", a, b, c, d, prefix);
+    printf("Number of Subnets  : %d\n", n);
+
+    int current = d;
+    for (i = 0; i < n; i++)
+    {
+        int x1 = a;
+        int x2 = b;
+        int x3 = c;
+        int x4 = current;
+
+        printf("\n---------------------------------------------\n");
+        printf("Subnet Number      : %d\n", i + 1);
+        printf("Address Space      : %d hosts\n", subnet[i].required);
+        printf("Host Bits          : %d\n", subnet[i].hostBits);
+        printf("Network Bits       : %d\n", subnet[i].prefix);
+        printf("New Prefix         : /%d\n", subnet[i].prefix);
+        printf("Total Addresses    : %d\n", subnet[i].total);
+        printf("Available Hosts    : %d\n", subnet[i].available);
+
+        if (subnet[i].prefix == 26) printf("Subnet Mask        : 255.255.255.192\n");
+        else if (subnet[i].prefix == 27) printf("Subnet Mask        : 255.255.255.224\n");
+        else if (subnet[i].prefix == 28) printf("Subnet Mask        : 255.255.255.240\n");
+        else if (subnet[i].prefix == 29) printf("Subnet Mask        : 255.255.255.248\n");
+        else if (subnet[i].prefix == 30) printf("Subnet Mask        : 255.255.255.252\n");
+
+        printf("Network Address    : %d.%d.%d.%d/%d\n", x1, x2, x3, x4, subnet[i].prefix);
+
+        subnet[i].network = current;
+        current = current + subnet[i].block;
+    }
+
+    printf("\n---------------------------------------------\n");
+
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        printf("Socket creation failed!\n");
+        return 0;
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+    server.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(sockfd, (struct sockaddr *)&server, sizeof(server)) < 0)
+    {
+        printf("Bind failed!\n");
+        close(sockfd);
+        return 0;
+    }
+
+
+    signal(SIGCHLD, handle_zombie);
+
+    printf("\nDHCP SERVER CONFIGURATION COMPLETED\n");
+    printf("SERVER IS WAITING FOR CLIENT REQUESTS CONCURRENTLY...\n");
+
+    while (1)
+    {
+        char clientName[100];
+        int requestedSubnet;
+        clientSize = sizeof(client);
+
+
+        ssize_t n1 = recvfrom(sockfd, clientName, sizeof(clientName) - 1, 0, (struct sockaddr *)&client, &clientSize);
+        if (n1 < 0) continue;
+        clientName[n1] = '\0';
+
+
+        ssize_t n2 = recvfrom(sockfd, &requestedSubnet, sizeof(requestedSubnet), 0, (struct sockaddr *)&client, &clientSize);
+        if (n2 < 0) continue;
+
+
+        pid_t pid = fork();
+
+        if (pid < 0)
+        {
+            printf("Fork failed processing client request.\n");
+        }
+        else if (pid == 0)
+        {
+
+            char ip[50];
+            char mask[50];
+            char gateway[50];
+
+            printf("\n\n[Child %d] Client Request Received...\n", getpid());
+            printf("Client Name       : %s\n", clientName);
+            printf("Requested Subnet  : %d\n", requestedSubnet);
+
+            if (requestedSubnet < 1 || requestedSubnet > n)
+            {
+                strcpy(ip, "Invalid Subnet");
+                sendto(sockfd, ip, strlen(ip) + 1, 0, (struct sockaddr *)&client, clientSize);
+                exit(0);
+            }
+
+            int idx = requestedSubnet - 1;
+            int assigned = subnet[idx].network + 1;
+
+            sprintf(ip, "%d.%d.%d.%d", a, b, c, assigned);
+
+            if (subnet[idx].prefix == 26) strcpy(mask, "255.255.255.192");
+            else if (subnet[idx].prefix == 27) strcpy(mask, "255.255.255.224");
+            else if (subnet[idx].prefix == 28) strcpy(mask, "255.255.255.240");
+            else if (subnet[idx].prefix == 29) strcpy(mask, "255.255.255.248");
+            else strcpy(mask, "255.255.255.252");
+
+            strcpy(gateway, ip);
+
+            printf("\n[Child %d] Processing Request...\n", getpid());
+            printf("Selected Network  : %d.%d.%d.%d/%d\n", a, b, c, subnet[idx].network, subnet[idx].prefix);
+            printf("Subnet Mask       : %s\n", mask);
+            printf("Available Hosts   : %d\n", subnet[idx].available);
+            printf("IP Assigned       : %s\n", ip);
+
+
+            sendto(sockfd, ip, strlen(ip) + 1, 0, (struct sockaddr *)&client, clientSize);
+
+            sendto(sockfd, mask, strlen(mask) + 1, 0, (struct sockaddr *)&client, clientSize);
+
+            sendto(sockfd, gateway, strlen(gateway) + 1, 0, (struct sockaddr *)&client, clientSize);
+
+            exit(0);
+        }
+
+    }
+
+    close(sockfd);
+    return 0;
+}
+
+[24bcs160@mepcolinux ex7]$cc serdhcp.c
+[24bcs160@mepcolinux ex7]$./a.out
+
+================ CONCURRENT DHCP SERVER ================
+
+Enter Base Address : 127.0.0.1
+Enter Prefix       : 25
+Enter Number of Subnets : 3
+
+Enter Address Space Required for Subnet 1 : 12
+
+Enter Address Space Required for Subnet 2 : 23
+
+Enter Address Space Required for Subnet 3 : 44
+
+
+Calculating Subnet Details...
+
+Base Network       : 127.0.0.1/25
+Number of Subnets  : 3
+
+---------------------------------------------
+Subnet Number      : 1
+Address Space      : 12 hosts
+Host Bits          : 4
+Network Bits       : 28
+New Prefix         : /28
+Total Addresses    : 16
+Available Hosts    : 14
+Subnet Mask        : 255.255.255.240
+Network Address    : 127.0.0.1/28
+
+---------------------------------------------
+Subnet Number      : 2
+Address Space      : 23 hosts
+Host Bits          : 5
+Network Bits       : 27
+New Prefix         : /27
+Total Addresses    : 32
+Available Hosts    : 30
+Subnet Mask        : 255.255.255.224
+Network Address    : 127.0.0.17/27
+
+---------------------------------------------
+Subnet Number      : 3
+Address Space      : 44 hosts
+Host Bits          : 6
+Network Bits       : 26
+New Prefix         : /26
+Total Addresses    : 64
+Available Hosts    : 62
+Subnet Mask        : 255.255.255.192
+Network Address    : 127.0.0.49/26
+
+---------------------------------------------
+
+DHCP SERVER CONFIGURATION COMPLETED
+SERVER IS WAITING FOR CLIENT REQUESTS CONCURRENTLY...
+
+
+[Child 13584] Client Request Received...
+Client Name       : Tharu
+Requested Subnet  : 2
+
+[Child 13584] Processing Request...
+Selected Network  : 127.0.0.17/27
+Subnet Mask       : 255.255.255.224
+Available Hosts   : 30
+IP Assigned       : 127.0.0.18
+[24bcs160@mepcolinux ex7]$cat cldhcp.c
+#include <stdio.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <sys/socket.h>
+
+#define PORT 8030
+
+int main(int argc, char *argv[])
+{
+    int sockfd;
+    struct sockaddr_in server;
+    socklen_t serverSize;
+
+    char clientName[100];
+    int requestedSubnet;
+
+    char ip[50];
+    char mask[50];
+    char gateway[50];
+
+    if (argc != 2)
+    {
+        printf("Usage: ./dhcp_client <server_ip>\n");
+        return 0;
+    }
+
+    printf("\n================ DHCP CLIENT ================\n\n");
+
+    printf("Enter Client Name : ");
+    if(scanf(" %[^\n]", clientName) != 1) return 1;
+
+    printf("Enter Required Subnet Number : ");
+    if(scanf("%d", &requestedSubnet) != 1) return 1;
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        printf("Socket creation failed!\n");
+        return 0;
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+    server.sin_addr.s_addr = inet_addr(argv[1]);
+    serverSize = sizeof(server);
+
+
+    sendto(sockfd, clientName, strlen(clientName) + 1, 0, (struct sockaddr *)&server, serverSize);
+
+
+    sendto(sockfd, &requestedSubnet, sizeof(requestedSubnet), 0, (struct sockaddr *)&server, serverSize);
+
+    printf("\nSent Request to Server. Waiting for configuration parameters...\n");
+
+
+    recvfrom(sockfd, ip, sizeof(ip), 0, (struct sockaddr *)&server, &serverSize);
+
+    if (strcmp(ip, "Invalid Subnet") == 0) {
+        printf("\nError: Server rejected the subnet allocation request.\n");
+        close(sockfd);
+        return 0;
+    }
+
+
+    recvfrom(sockfd, mask, sizeof(mask), 0, (struct sockaddr *)&server, &serverSize);
+
+
+    recvfrom(sockfd, gateway, sizeof(gateway), 0, (struct sockaddr *)&server, &serverSize);
+
+    printf("\n================ RECEIVED CONFIGURATION ================\n");
+    printf("Assigned IP Address : %s\n", ip);
+    printf("Subnet Mask         : %s\n", mask);
+    printf("Default Gateway     : %s\n", gateway);
+    printf("========================================================\n");
+
+    close(sockfd);
+    return 0;
+}
+[24bcs160@mepcolinux ex7]$cc cldhcp.c
+[24bcs160@mepcolinux ex7]$./a.out 127.0.0.1
+
+================ DHCP CLIENT ================
+
+Enter Client Name : Tharu
+Enter Required Subnet Number : 2
+
+Sent Request to Server. Waiting for configuration parameters...
+
+================ RECEIVED CONFIGURATION ================
+Assigned IP Address : 127.0.0.18
+Subnet Mask         : 255.255.255.224
+Default Gateway     : 127.0.0.18
+========================================================
