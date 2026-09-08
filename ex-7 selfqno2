@@ -1,0 +1,264 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <sys/file.h>
+
+#define PORT 8080
+#define TOTAL_ROOMS 10
+#define FILE_NAME "bookings.txt"
+
+// Room Structure
+typedef struct {
+    int room_num;
+    int is_booked;
+    char guest_name[50];
+} Room;
+
+Room rooms[TOTAL_ROOMS];
+pthread_mutex_t booking_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Initialize Rooms (101 to 110)
+void init_rooms() {
+    for (int i = 0; i < TOTAL_ROOMS; i++) {
+        rooms[i].room_num = 101 + i;
+        rooms[i].is_booked = 0;
+        strcpy(rooms[i].guest_name, "None");
+    }
+}
+
+// Append booking transaction to persistent storage with file lock
+void log_transaction(const char *action, int room_num, const char *guest) {
+    FILE *fp = fopen(FILE_NAME, "a");
+    if (fp == NULL) return;
+
+    int fd = fileno(fp);
+    flock(fd, LOCK_EX); // File level lock for cross-process safety
+
+    fprintf(fp, "[ACTION: %s] | Room: %d | Guest: %s\n", action, room_num, guest);
+
+    flock(fd, LOCK_UN);
+    fclose(fp);
+}
+
+// Thread Handler for Each Connected Client
+void *client_handler(void *socket_desc) {
+    int sock = *(int *)socket_desc;
+    free(socket_desc);
+    
+    char buffer[1024];
+    int choice, room_num;
+    char guest_name[50];
+
+    while (1) {
+        memset(buffer, 0, sizeof(buffer));
+        int read_bytes = recv(sock, buffer, sizeof(buffer), 0);
+        if (read_bytes <= 0) break; // Client disconnected
+
+        sscanf(buffer, "%d %d %[^\n]", &choice, &room_num, guest_name);
+        char response[1024] = {0};
+
+        switch (choice) {
+            case 1: // View Availability
+                pthread_mutex_lock(&booking_mutex);
+                strcat(response, "\n--- ROOM AVAILABILITY ---\n");
+                for (int i = 0; i < TOTAL_ROOMS; i++) {
+                    char temp[100];
+                    sprintf(temp, "Room %d: %s\n", rooms[i].room_num, 
+                            rooms[i].is_booked ? "BOOKED" : "AVAILABLE");
+                    strcat(response, temp);
+                }
+                pthread_mutex_unlock(&booking_mutex);
+                break;
+
+            case 2: // Book a Room
+                pthread_mutex_lock(&booking_mutex);
+                int found_book = 0;
+                for (int i = 0; i < TOTAL_ROOMS; i++) {
+                    if (rooms[i].room_num == room_num) {
+                        found_book = 1;
+                        if (rooms[i].is_booked) {
+                            strcpy(response, "ERROR: Room is already booked by another user!");
+                        } else {
+                            rooms[i].is_booked = 1;
+                            strcpy(rooms[i].guest_name, guest_name);
+                            log_transaction("BOOKING", room_num, guest_name);
+                            sprintf(response, "SUCCESS: Room %d successfully booked for %s.", room_num, guest_name);
+                        }
+                        break;
+                    }
+                }
+                if (!found_book) strcpy(response, "ERROR: Invalid Room Number.");
+                pthread_mutex_unlock(&booking_mutex);
+                break;
+
+            case 3: // Cancel Reservation
+                pthread_mutex_lock(&booking_mutex);
+                int found_cancel = 0;
+                for (int i = 0; i < TOTAL_ROOMS; i++) {
+                    if (rooms[i].room_num == room_num) {
+                        found_cancel = 1;
+                        if (!rooms[i].is_booked) {
+                            strcpy(response, "ERROR: Room is not currently booked.");
+                        } else if (strcmp(rooms[i].guest_name, guest_name) != 0) {
+                            strcpy(response, "ERROR: Guest name mismatch! Cannot cancel.");
+                        } else {
+                            rooms[i].is_booked = 0;
+                            log_transaction("CANCELLATION", room_num, guest_name);
+                            strcpy(rooms[i].guest_name, "None");
+                            sprintf(response, "SUCCESS: Reservation for Room %d canceled.", room_num);
+                        }
+                        break;
+                    }
+                }
+                if (!found_cancel) strcpy(response, "ERROR: Invalid Room Number.");
+                pthread_mutex_unlock(&booking_mutex);
+                break;
+
+            case 4: // Check Booking Details
+                pthread_mutex_lock(&booking_mutex);
+                int found_check = 0;
+                for (int i = 0; i < TOTAL_ROOMS; i++) {
+                    if (rooms[i].room_num == room_num) {
+                        found_check = 1;
+                        if (rooms[i].is_booked) {
+                            sprintf(response, "DETAILS: Room %d is Booked by '%s'.", room_num, rooms[i].guest_name);
+                        } else {
+                            sprintf(response, "DETAILS: Room %d is currently Vacant.", room_num);
+                        }
+                        break;
+                    }
+                }
+                if (!found_check) strcpy(response, "ERROR: Invalid Room Number.");
+                pthread_mutex_unlock(&booking_mutex);
+                break;
+
+            case 5: // Exit
+                strcpy(response, "Goodbye!");
+                send(sock, response, strlen(response), 0);
+                close(sock);
+                pthread_exit(NULL);
+
+            default:
+                strcpy(response, "ERROR: Invalid Choice.");
+                break;
+        }
+
+        send(sock, response, strlen(response), 0);
+    }
+
+    close(sock);
+    return NULL;
+}
+
+int main() {
+    int server_fd, client_sock;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t addr_size = sizeof(client_addr);
+
+    init_rooms();
+
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
+
+    bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    listen(server_fd, 10);
+
+    printf("====================================================\n");
+    printf("   HOTEL RESERVATION CONCURRENT SERVER RUNNING...   \n");
+    printf("====================================================\n");
+
+    while (1) {
+        client_sock = accept(server_fd, (struct sockaddr *)&client_addr, &addr_size);
+        printf("[SERVER] New Client Connected!\n");
+
+        pthread_t thread_id;
+        int *new_sock = malloc(sizeof(int));
+        *new_sock = client_sock;
+
+        if (pthread_create(&thread_id, NULL, client_handler, (void *)new_sock) < 0) {
+            perror("Could not create thread");
+            free(new_sock);
+        }
+        pthread_detach(thread_id); // Auto-reclaim thread resources on exit
+    }
+
+    close(server_fd);
+    return 0;
+}
+------------------------------------------------------------------------------
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 8080
+
+int main() {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in serv_addr;
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
+    inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr);
+
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        printf("Connection Failed! Ensure server is running.\n");
+        return -1;
+    }
+
+    int choice;
+    while (1) {
+        printf("\n=========================================\n");
+        printf("      HOTEL RESERVATION SYSTEM MENU      \n");
+        printf("=========================================\n");
+        printf("1. View Room Availability\n");
+        printf("2. Book a Room\n");
+        printf("3. Cancel Reservation\n");
+        printf("4. Check Booked Details\n");
+        printf("5. Exit\n");
+        printf("Enter Choice: ");
+        scanf("%d", &choice);
+
+        char payload[1024] = {0};
+        char response[1024] = {0};
+        int room_num = 0;
+        char guest_name[50] = "None";
+
+        if (choice == 2) {
+            printf("Enter Room Number (101-110): ");
+            scanf("%d", &room_num);
+            printf("Enter Guest Name (Single word/No spaces): ");
+            scanf("%s", guest_name);
+        } else if (choice == 3) {
+            printf("Enter Room Number (101-110): ");
+            scanf("%d", &room_num);
+            printf("Enter Guest Name to confirm cancellation: ");
+            scanf("%s", guest_name);
+        } else if (choice == 4) {
+            printf("Enter Room Number (101-110): ");
+            scanf("%d", &room_num);
+        } else if (choice == 5) {
+            sprintf(payload, "5 0 None");
+            send(sock, payload, strlen(payload), 0);
+            break;
+        }
+
+        sprintf(payload, "%d %d %s", choice, room_num, guest_name);
+        send(sock, payload, strlen(payload), 0);
+
+        recv(sock, response, sizeof(response), 0);
+        printf("\n[SERVER RESPONSE]:\n%s\n", response);
+    }
+
+    close(sock);
+    return 0;
+}
