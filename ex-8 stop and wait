@@ -1,0 +1,255 @@
+
+[24bcs160@mepcolinux ex8]$cat swser.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 9080
+
+typedef struct Packet {
+    int seq_num;
+    int ack_num;
+    char content[50];
+    int test_case;
+} Packet;
+
+int main() {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
+
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(server_fd, 3) < 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("=========================================\n");
+    printf("  ITERATIVE RECEIVER SIDE (STOP-AND-WAIT)\n");
+    printf("=========================================\n");
+    printf("Listening for Sender connections on port %d...\n\n", PORT);
+
+
+    while (1) {
+        printf("Waiting next sender to connect...\n");
+        new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
+        if (new_socket < 0) {
+            perror("Accept failed");
+            continue;
+        }
+
+        printf("\n>>> Sender connected! Processing transmission... <<<\n");
+
+        int expected_seq = 0;
+        Packet pkt;
+
+
+        while (read(new_socket, &pkt, sizeof(Packet)) > 0) {
+
+            if (pkt.test_case == 999) {
+                expected_seq = 0;
+                continue;
+            }
+
+            printf("-----------------------------------------\n");
+
+
+            if (pkt.test_case == 1 && pkt.seq_num == 1) {
+                printf("[RECEIVER] Packet Loss Simulated! Dropping Frame %d.\n", pkt.seq_num);
+                pkt.test_case = 0;
+                continue;
+            }
+
+
+            if (pkt.test_case == 3 && pkt.seq_num == 1) {
+                printf("[RECEIVER] Mismatch! Expected Frame %d, received corrupt Frame 99.\n", expected_seq);
+                Packet ack;
+                ack.ack_num = expected_seq;
+                printf("[RECEIVER] Sending ACK %d to request missing frame.\n", ack.ack_num);
+                send(new_socket, &ack, sizeof(Packet), 0);
+                pkt.test_case = 0;
+                continue;
+            }
+
+            if (pkt.seq_num == expected_seq) {
+                printf("[RECEIVER] Received Frame %d: \"%s\"\n", pkt.seq_num, pkt.content);
+                expected_seq++;
+                Packet ack;
+                ack.ack_num = expected_seq;
+                printf("[RECEIVER] Frame accepted. Sending ACK %d.\n", ack.ack_num);
+                send(new_socket, &ack, sizeof(Packet), 0);
+            }
+        }
+
+        printf("\n[RECEIVER] Client transmission complete. Closing connection.\n");
+        printf("=========================================\n\n");
+        close(new_socket);
+    }
+
+    close(server_fd);
+    return 0;
+}
+
+[24bcs160@mepcolinux ex8]$cat swcl.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
+
+#define PORT 9080
+
+
+typedef struct Frame {
+    int frame_id;
+    char content[50];
+    struct Frame* next;
+} Frame;
+
+
+typedef struct Packet {
+    int seq_num;
+    int ack_num;
+    char content[50];
+    int test_case;
+} Packet;
+
+void appendFrame(Frame** head, int id, const char* content) {
+    Frame* newFrame = (Frame*)malloc(sizeof(Frame));
+    newFrame->frame_id = id;
+    strncpy(newFrame->content, content, sizeof(newFrame->content) - 1);
+    newFrame->content[sizeof(newFrame->content) - 1] = '\0'; // Guarantee null-termination
+    newFrame->next = NULL;
+
+    if (*head == NULL) {
+        *head = newFrame;
+        return;
+    }
+    Frame* temp = *head;
+    while (temp->next != NULL) {
+        temp = temp->next;
+    }
+    temp->next = newFrame;
+}
+
+void runTestCase(int sock, Frame* head, int test_case_id) {
+    Frame* current = head;
+    int expected_ack = 1;
+
+    struct timeval timeout;
+    timeout.tv_sec = 2;
+    timeout.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+
+    Packet sync_pkt;
+    memset(&sync_pkt, 0, sizeof(Packet));
+    sync_pkt.test_case = 999;
+    send(sock, &sync_pkt, sizeof(Packet), 0);
+
+    while (current != NULL) {
+        printf("\n[SENDER] Sending Frame %d: \"%s\"\n", current->frame_id, current->content);
+
+        Packet pkt;
+        memset(&pkt, 0, sizeof(Packet));
+        pkt.seq_num = current->frame_id;
+        strncpy(pkt.content, current->content, sizeof(pkt.content) - 1);
+        pkt.test_case = test_case_id;
+
+        send(sock, &pkt, sizeof(Packet), 0);
+        printf("[SENDER] Frame %d transmitted. Waiting for ACK...\n", current->frame_id);
+
+        Packet ack_pkt;
+        int bytes_received = recv(sock, &ack_pkt, sizeof(Packet), 0);
+
+        if (bytes_received < 0) {
+            printf("[SENDER] Timer Expired! Retransmitting Frame %d...\n", current->frame_id);
+            test_case_id = 0;
+        }
+        else if (ack_pkt.ack_num < expected_ack) {
+            printf("[SENDER] Duplicate ACK %d received. Retransmitting Frame %d...\n", ack_pkt.ack_num, current->frame_id);
+            test_case_id = 0;
+        }
+        else if (ack_pkt.ack_num == expected_ack) {
+            printf("[SENDER] Positive ACK %d received successfully.\n", ack_pkt.ack_num);
+            expected_ack++;
+            current = current->next;
+        }
+    }
+}
+
+int main() {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in serv_addr;
+
+    if (sock < 0) {
+        perror("Socket creation error");
+        return -1;
+    }
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
+    inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr);
+
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        printf("Connection Failed. Ensure receiver is running first.\n");
+        return -1;
+    }
+
+    int total_frames;
+    char buffer[50];
+
+    printf("=========================================\n");
+    printf("         SENDER SIDE (STOP-AND-WAIT)     \n");
+    printf("=========================================\n");
+    printf("Enter number of frames to send: ");
+    if (scanf("%d", &total_frames) != 1) return -1;
+
+    Frame* frameList = NULL;
+    int i;
+    for (i = 0; i < total_frames; i++) {
+        printf("Enter content for Frame %d: ", i);
+        scanf("%s", buffer);
+        appendFrame(&frameList, i, buffer);
+    }
+
+    printf("\n>>> TEST CASE 1: TIMEOUT & RETRANSMISSION <<<");
+    runTestCase(sock, frameList, 1);
+
+    printf("\n>>> TEST CASE 2: SUCCESSFUL COMPLETION <<<");
+    runTestCase(sock, frameList, 2);
+
+    if (total_frames > 1) {
+        printf("\n>>> TEST CASE 3: SEQUENCE MISMATCH & RESEND <<<");
+        runTestCase(sock, frameList, 3);
+    }
+
+
+    Frame* temp;
+    while (frameList != NULL) {
+        temp = frameList;
+        frameList = frameList->next;
+        free(temp);
+    }
+
+    close(sock);
+    printf("\nTransmission complete. Disconnected smoothly from Receiver.\n");
+    return 0;
+}
