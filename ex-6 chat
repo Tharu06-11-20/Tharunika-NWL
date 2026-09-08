@@ -1,0 +1,241 @@
+[24bcs160@mepcolinux ex7]$cat serchat.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+
+#define PORT 2080
+#define MAX_CLIENTS 10
+#define BUFFER_SIZE 1024
+
+struct client_t {
+    struct sockaddr_in addr;
+    char name[32];
+    int active;
+} clients[MAX_CLIENTS];
+
+int main() {
+    int server_fd;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    char buffer[BUFFER_SIZE];
+    char message[BUFFER_SIZE + 64];
+    int i;
+
+
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        clients[i].active = 0;
+    }
+
+
+    server_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (server_fd < 0) {
+        perror("Socket creation failed");
+        exit(1);
+    }
+
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
+
+
+    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Bind failed");
+        close(server_fd);
+        exit(1);
+    }
+
+    printf("UDP Chat Server running on port %d...\n", PORT);
+
+
+    while (1) {
+        memset(buffer, 0, BUFFER_SIZE);
+
+        int bytes = recvfrom(server_fd, buffer, BUFFER_SIZE - 1, 0,
+                             (struct sockaddr *)&client_addr, &addr_len);
+        if (bytes <= 0) continue;
+
+        buffer[strcspn(buffer, "\r\n")] = 0; // Strip newline
+
+
+        int id = -1, free_slot = -1;
+        for (i = 0; i < MAX_CLIENTS; i++) {
+            if (clients[i].active &&
+                clients[i].addr.sin_port == client_addr.sin_port &&
+                clients[i].addr.sin_addr.s_addr == client_addr.sin_addr.s_addr) {
+                id = i;
+                break;
+            }
+            if (!clients[i].active && free_slot == -1) {
+                free_slot = i;
+            }
+        }
+
+
+        if (id == -1 && free_slot != -1) {
+            clients[free_slot].addr = client_addr;
+            clients[free_slot].active = 1;
+            strcpy(clients[free_slot].name, buffer);
+
+            sprintf(message, "--- %s joined the chat ---\n", clients[free_slot].name);
+            printf("%s", message);
+
+
+            for (i = 0; i < MAX_CLIENTS; i++) {
+                if (clients[i].active &&
+                    (clients[i].addr.sin_port != client_addr.sin_port ||
+                     clients[i].addr.sin_addr.s_addr != client_addr.sin_addr.s_addr)) {
+                    sendto(server_fd, message, strlen(message), 0,
+                           (struct sockaddr *)&clients[i].addr, sizeof(clients[i].addr));
+                }
+            }
+        }
+
+        else if (id != -1 && strcmp(buffer, "exit") == 0) {
+            clients[id].active = 0;
+
+            sprintf(message, "--- %s left the chat ---\n", clients[id].name);
+            printf("%s", message);
+
+
+            for (i = 0; i < MAX_CLIENTS; i++) {
+                if (clients[i].active &&
+                    (clients[i].addr.sin_port != client_addr.sin_port ||
+                     clients[i].addr.sin_addr.s_addr != client_addr.sin_addr.s_addr)) {
+                    sendto(server_fd, message, strlen(message), 0,
+                           (struct sockaddr *)&clients[i].addr, sizeof(clients[i].addr));
+                }
+            }
+        }
+
+        else if (id != -1) {
+            sprintf(message, "[%s]: %s\n", clients[id].name, buffer);
+            printf("%s", message);
+
+
+            for (i = 0; i < MAX_CLIENTS; i++) {
+                if (clients[i].active &&
+                    (clients[i].addr.sin_port != client_addr.sin_port ||
+                     clients[i].addr.sin_addr.s_addr != client_addr.sin_addr.s_addr)) {
+                    sendto(server_fd, message, strlen(message), 0,
+                           (struct sockaddr *)&clients[i].addr, sizeof(clients[i].addr));
+                }
+            }
+        }
+    }
+
+    close(server_fd);
+    return 0;
+}
+[24bcs160@mepcolinux ex7]$cc serchat.c
+[24bcs160@mepcolinux ex7]$./a.out
+UDP Chat Server running on port 2080...
+--- tharu joined the chat ---
+[tharu]: Hello
+[tharu]: Bye
+--- tharu left the chat ---
+
+[24bcs160@mepcolinux ex7]$cat clchat.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <signal.h>
+
+#define SERVER_PORT 2080
+#define BUFFER_SIZE 1024
+
+int main() {
+    int sockfd;
+    struct sockaddr_in server_addr;
+    char buffer[BUFFER_SIZE];
+    char name[32];
+    socklen_t addr_len = sizeof(server_addr);
+
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        perror("Socket creation failed");
+        return 1;
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+
+    if (inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) <= 0) {
+        perror("Invalid address");
+        close(sockfd);
+        return 1;
+    }
+
+
+    printf("Enter your chat name: ");
+    if (fgets(name, sizeof(name), stdin) == NULL) return 1;
+    name[strcspn(name, "\r\n")] = 0;
+
+
+    sendto(sockfd, name, strlen(name), 0, (struct sockaddr *)&server_addr, addr_len);
+    printf("Successfully connected to the chatroom. Type 'exit' to quit.\n\n");
+
+
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        perror("Fork failed");
+        close(sockfd);
+        return 1;
+    }
+
+    if (pid == 0) {
+
+        char receive_buffer[BUFFER_SIZE];
+        while (1) {
+            memset(receive_buffer, 0, BUFFER_SIZE);
+            int bytes = recvfrom(sockfd, receive_buffer, BUFFER_SIZE - 1, 0,
+                                 (struct sockaddr *)&server_addr, &addr_len);
+            if (bytes > 0) {
+                receive_buffer[bytes] = '\0';
+                printf("%s", receive_buffer);
+                fflush(stdout);
+            }
+        }
+    } else {
+
+        while (1) {
+            memset(buffer, 0, BUFFER_SIZE);
+            if (fgets(buffer, sizeof(buffer), stdin) == NULL) break;
+            buffer[strcspn(buffer, "\r\n")] = 0;
+
+            if (strlen(buffer) == 0) continue;
+
+
+            sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&server_addr, addr_len);
+
+            if (strcmp(buffer, "exit") == 0) {
+                printf("Leaving chatroom...\n");
+                kill(pid, SIGKILL);
+                break;
+            }
+        }
+    }
+
+    close(sockfd);
+    return 0;
+}
+
+[24bcs160@mepcolinux ex7]$cc clchat.c
+[24bcs160@mepcolinux ex7]$./a.out
+Enter your chat name: tharu
+Successfully connected to the chatroom. Type 'exit' to quit.
+
+Hello
+Bye
+exit
+Leaving chatroom...
