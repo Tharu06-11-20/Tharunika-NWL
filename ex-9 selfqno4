@@ -1,0 +1,157 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+
+#define PORT 8081
+
+struct Student {
+    char regno[20];
+    char name[50];
+    char department[30];
+    int semester;
+    float cgpa;
+};
+
+int main() {
+
+    int sockfd;
+    struct sockaddr_in server, client;
+    socklen_t len = sizeof(client);
+
+    struct Student students[] = {
+        {"23CS001", "Arun", "CSE", 5, 8.50},
+        {"23CS002", "Bala", "CSE", 5, 8.20},
+        {"23CS003", "Charan", "CSE", 5, 9.10},
+        {"23CS004", "Divya", "ECE", 5, 8.75},
+        {"23CS005", "Priya", "IT", 5, 9.00}
+    };
+
+    int count = 5;
+
+    char regno[20];
+    char response[200];
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (sockfd < 0) {
+        printf("Socket creation failed\n");
+        return 1;
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(PORT);
+
+    if (bind(sockfd, (struct sockaddr *)&server, sizeof(server)) < 0) {
+        printf("Bind failed\n");
+        return 1;
+    }
+
+    printf("Student Server started...\n");
+
+    while (1) {
+
+        recvfrom(sockfd, regno, sizeof(regno), 0,
+                 (struct sockaddr *)&client, &len);
+
+        regno[strcspn(regno, "\n")] = '\0';
+
+        printf("\nReceived Registration Number: %s\n",
+               regno);
+
+        int found = 0;
+
+        for (int i = 0; i < count; i++) {
+
+            if (strcmp(regno, students[i].regno) == 0) {
+
+                sprintf(response,
+                        "Registration No: %s\n"
+                        "Name: %s\n"
+                        "Department: %s\n"
+                        "Semester: %d\n"
+                        "CGPA: %.2f",
+                        students[i].regno,
+                        students[i].name,
+                        students[i].department,
+                        students[i].semester,
+                        students[i].cgpa);
+
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found) {
+            strcpy(response,
+                   "Student not found");
+        }
+
+        sendto(sockfd, response, sizeof(response), 0,
+               (struct sockaddr *)&client, len);
+
+        printf("Response sent\n");
+    }
+
+    close(sockfd);
+
+    return 0;
+}
+-----------------------------------------------------------------
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+
+#define PORT 8081
+
+int main() {
+
+    int sockfd;
+    struct sockaddr_in server;
+    socklen_t len = sizeof(server);
+
+    char regno[20];
+    char response[200];
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (sockfd < 0) {
+        printf("Socket creation failed\n");
+        return 1;
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+    server.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    while (1) {
+
+        printf("\nEnter Registration Number: ");
+        scanf("%s", regno);
+
+        if (strcmp(regno, "exit") == 0)
+            break;
+
+        sendto(sockfd, regno, sizeof(regno), 0,
+               (struct sockaddr *)&server, len);
+
+        recvfrom(sockfd, response, sizeof(response), 0,
+                 (struct sockaddr *)&server, &len);
+
+        printf("\nStudent Details:\n");
+        printf("%s\n", response);
+
+        printf("\nEnter another registration number.");
+        printf(" Type 'exit' to stop.\n");
+    }
+
+    close(sockfd);
+
+    return 0;
+}
