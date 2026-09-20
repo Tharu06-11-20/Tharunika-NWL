@@ -1,0 +1,212 @@
+#include <stdlib.h>
+
+typedef struct {
+    long long value;
+    int index;
+} Node;
+
+typedef struct {
+    Node *a;
+    int size;
+    int minHeap;
+} Heap;
+
+int compare(Node a, Node b, int minHeap) {
+    if (a.value != b.value) {
+        if (minHeap)
+            return a.value < b.value;
+        else
+            return a.value > b.value;
+    }
+
+    return a.index < b.index;
+}
+
+void swap(Node *a, Node *b) {
+    Node temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+void push(Heap *h, Node x) {
+    int i = h->size;
+    h->a[i] = x;
+    h->size++;
+
+    while (i > 0) {
+        int p = (i - 1) / 2;
+
+        if (compare(h->a[p], h->a[i], h->minHeap))
+            break;
+
+        swap(&h->a[p], &h->a[i]);
+        i = p;
+    }
+}
+
+Node pop(Heap *h) {
+    Node result = h->a[0];
+
+    h->size--;
+
+    if (h->size > 0) {
+        h->a[0] = h->a[h->size];
+
+        int i = 0;
+
+        while (1) {
+            int left = 2 * i + 1;
+            int right = 2 * i + 2;
+            int best = i;
+
+            if (left < h->size &&
+                compare(h->a[left], h->a[best], h->minHeap)) {
+                best = left;
+            }
+
+            if (right < h->size &&
+                compare(h->a[right], h->a[best], h->minHeap)) {
+                best = right;
+            }
+
+            if (best == i)
+                break;
+
+            swap(&h->a[i], &h->a[best]);
+            i = best;
+        }
+    }
+
+    return result;
+}
+
+void clean(Heap *h, int *removed) {
+    while (h->size > 0 &&
+           removed[h->a[0].index]) {
+        removed[h->a[0].index] = 0;
+        pop(h);
+    }
+}
+
+double* medianSlidingWindow(
+    int* nums,
+    int numsSize,
+    int k,
+    int* returnSize
+) {
+    int n = numsSize - k + 1;
+
+    double *answer =
+        (double *)malloc(n * sizeof(double));
+
+    Node *smallArray =
+        (Node *)malloc(numsSize * sizeof(Node));
+
+    Node *largeArray =
+        (Node *)malloc(numsSize * sizeof(Node));
+
+    int *removed =
+        (int *)calloc(numsSize, sizeof(int));
+
+    Heap small = {smallArray, 0, 0};
+    Heap large = {largeArray, 0, 1};
+
+    int smallCount = 0;
+    int largeCount = 0;
+
+    for (int i = 0; i < k; i++) {
+        Node x;
+        x.value = (long long)nums[i];
+        x.index = i;
+
+        if (smallCount == 0 ||
+            x.value <= small.a[0].value) {
+            push(&small, x);
+            smallCount++;
+        } else {
+            push(&large, x);
+            largeCount++;
+        }
+
+        if (smallCount > largeCount + 1) {
+            Node y = pop(&small);
+            push(&large, y);
+            smallCount--;
+            largeCount++;
+        }
+
+        if (largeCount > smallCount) {
+            Node y = pop(&large);
+            push(&small, y);
+            largeCount--;
+            smallCount++;
+        }
+    }
+
+    for (int i = 0; i < n; i++) {
+
+        clean(&small, removed);
+        clean(&large, removed);
+
+        if (k % 2 == 1) {
+            answer[i] = (double)small.a[0].value;
+        } else {
+            long long a = small.a[0].value;
+            long long b = large.a[0].value;
+
+            answer[i] = ((double)a + (double)b) / 2.0;
+        }
+
+        if (i == n - 1)
+            break;
+
+        int outgoing = i;
+
+        if ((long long)nums[outgoing] <= small.a[0].value)
+            smallCount--;
+        else
+            largeCount--;
+
+        removed[outgoing] = 1;
+
+        int incoming = i + k;
+
+        Node x;
+        x.value = (long long)nums[incoming];
+        x.index = incoming;
+
+        clean(&small, removed);
+        clean(&large, removed);
+
+        if (smallCount == 0 ||
+            x.value <= small.a[0].value) {
+            push(&small, x);
+            smallCount++;
+        } else {
+            push(&large, x);
+            largeCount++;
+        }
+
+        while (smallCount > largeCount + 1) {
+            Node y = pop(&small);
+            push(&large, y);
+            smallCount--;
+            largeCount++;
+        }
+
+        while (largeCount > smallCount) {
+            Node y = pop(&large);
+            push(&small, y);
+            largeCount--;
+            smallCount++;
+        }
+    }
+
+    *returnSize = n;
+
+    free(smallArray);
+    free(largeArray);
+    free(removed);
+
+    return answer;
+}
