@@ -1,0 +1,216 @@
+[24bcs160@mepcolinux ex9]$cat server.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <arpa/inet.h>
+
+#define PORT 2600
+
+int main() {
+    int server_socket;
+    struct sockaddr_in server_addr, client_addr;
+    socklen_t addr_len;
+    double buffer[3];
+    double result;
+    pid_t pid;
+    int choice;
+    double num1, num2;
+
+
+    server_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (server_socket < 0) {
+        perror("Error creating socket");
+        exit(EXIT_FAILURE);
+    }
+
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
+
+
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Bind failed");
+        close(server_socket);
+        exit(EXIT_FAILURE);
+    }
+
+
+    signal(SIGCHLD, SIG_IGN);
+
+    printf("Concurrent UDP RPC Server running on port %d...\n\n", PORT);
+
+
+    while (1) {
+        addr_len = sizeof(client_addr);
+
+
+        if (recvfrom(server_socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len) < 0) {
+            perror("Recvfrom failed");
+            continue;
+        }
+
+
+        pid = fork();
+
+        if (pid == 0) {
+
+            choice = (int)buffer[0];
+            num1 = buffer[1];
+            num2 = buffer[2];
+
+
+            printf("[SERVER INFO] Client connected");
+            char op_char;
+            if (choice == 1) {
+                result = num1 + num2;
+                op_char = '+';
+            } else if (choice == 2) {
+                result = num1 - num2;
+                op_char = '-';
+            } else if (choice == 3) {
+                result = num1 * num2;
+                op_char = '*';
+            } else if (choice == 4) {
+                op_char = '/';
+                if (num2 == 0) {
+                    result = -999999;
+                } else {
+                    result = num1 / num2;
+                }
+            } else {
+                op_char = '?';
+                result = -888888;
+            }
+
+
+            if (result == -999999) {
+                printf("[SERVER LOG] Operation requested: %.2f %c %.2f -> FAILED: Division by Zero\n\n", num1, op_char, num2);
+            } else if (result == -888888) {
+                printf("[SERVER LOG] Operation requested: Invalid Operation choice\n\n");
+            } else {
+                printf("[SERVER LOG] Operation requested: %.2f %c %.2f -> Computed Result: %.2f\n\n", num1, op_char, num2, result);
+            }
+
+
+            sendto(server_socket, &result, sizeof(result), 0, (struct sockaddr *)&client_addr, addr_len);
+
+
+            exit(0);
+        } else if (pid < 0) {
+            perror("Fork failed");
+        }
+
+    }
+
+    close(server_socket);
+    return 0;
+}
+[24bcs160@mepcolinux ex9]$[24bcs160@mepcolinux ex9]$cc server.c
+[24bcs160@mepcolinux ex9]$./a.out
+Concurrent UDP RPC Server running on port 2600...
+
+[SERVER INFO] Client connected[SERVER LOG] Operation requested: 4.00 - 3.00 -> Computed Result: 1.00
+
+[24bcs160@mepcolinux ex9]$cat client.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define PORT 2600
+
+int main() {
+    int client_socket;
+    struct sockaddr_in server_addr;
+    socklen_t addr_len;
+    double buffer[3];
+    double result;
+
+    addr_len = sizeof(server_addr);
+
+
+    client_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (client_socket < 0) {
+        perror("Error creating socket");
+        exit(EXIT_FAILURE);
+    }
+
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(PORT);
+    inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr);
+
+    while (1) {
+        printf("\n--- RPC Calculator Menu ---\n");
+        printf("1. Addition (+)\n");
+        printf("2. Subtraction (-)\n");
+        printf("3. Multiplication (*)\n");
+        printf("4. Division (/)\n");
+        printf("5. Exit\n");
+        printf("Enter choice (1-5): ");
+
+        if (scanf("%lf", &buffer[0]) != 1) {
+            break;
+        }
+
+        if (buffer[0] == 5) {
+            printf("Exiting program...\n");
+            break;
+        }
+
+        if (buffer[0] < 1 || buffer[0] > 4) {
+            printf("Invalid selection! Try again.\n");
+            continue;
+        }
+
+        printf("Enter first number: ");
+        scanf("%lf", &buffer[1]);
+
+        printf("Enter second number: ");
+        scanf("%lf", &buffer[2]);
+
+
+        sendto(client_socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&server_addr, addr_len);
+
+
+        recvfrom(client_socket, &result, sizeof(result), 0, (struct sockaddr *)&server_addr, &addr_len);
+
+
+        if (result == -999999) {
+            printf("Server Error: Division by Zero is not allowed!\n");
+        } else {
+            printf("Result from server: %.2f\n", result);
+        }
+    }
+
+    close(client_socket);
+    return 0;
+}
+[24bcs160@mepcolinux ex9]$cc client.c
+[24bcs160@mepcolinux ex9]$./a.out
+
+--- RPC Calculator Menu ---
+1. Addition (+)
+2. Subtraction (-)
+3. Multiplication (*)
+4. Division (/)
+5. Exit
+Enter choice (1-5): 2
+Enter first number: 4
+Enter second number: 3
+Result from server: 1.00
+
+--- RPC Calculator Menu ---
+1. Addition (+)
+2. Subtraction (-)
+3. Multiplication (*)
+4. Division (/)
+5. Exit
+Enter choice (1-5): 5
+Exiting program...
