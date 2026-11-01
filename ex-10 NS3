@@ -1,0 +1,96 @@
+#include "ns3/core-module.h"
+#include "ns3/network-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/applications-module.h"
+
+using namespace ns3;
+
+int main()
+{
+    // Node Creation
+    NodeContainer nodes;
+    nodes.Create(4);
+
+    std::cout << "Nodes Created: "
+              << nodes.GetN() << std::endl;
+
+    // Network Simulation
+    PointToPointHelper p2p;
+
+    p2p.SetDeviceAttribute("DataRate",
+                           StringValue("1Mbps"));
+
+    p2p.SetChannelAttribute("Delay",
+                            StringValue("10ms"));
+
+    NetDeviceContainer devices;
+    devices = p2p.Install(nodes.Get(0), nodes.Get(1));
+
+    InternetStackHelper stack;
+    stack.Install(nodes);
+
+    Ipv4AddressHelper address;
+    address.SetBase("10.1.1.0",
+                    "255.255.255.0");
+
+    Ipv4InterfaceContainer interfaces;
+    interfaces = address.Assign(devices);
+
+    // Traffic Receiver
+    uint16_t port = 5000;
+
+    PacketSinkHelper sink(
+        "ns3::UdpSocketFactory",
+        InetSocketAddress(
+            Ipv4Address::GetAny(), port));
+
+    ApplicationContainer sinkApp =
+        sink.Install(nodes.Get(1));
+
+    sinkApp.Start(Seconds(1.0));
+    sinkApp.Stop(Seconds(10.0));
+
+    // Traffic Congestion Control
+    OnOffHelper source(
+        "ns3::UdpSocketFactory",
+        InetSocketAddress(
+            interfaces.GetAddress(1), port));
+
+    source.SetAttribute("DataRate",
+                        StringValue("500kbps"));
+
+    source.SetAttribute("PacketSize",
+                        UintegerValue(1024));
+
+    ApplicationContainer sourceApp =
+        source.Install(nodes.Get(0));
+
+    sourceApp.Start(Seconds(2.0));
+    sourceApp.Stop(Seconds(10.0));
+
+    // Run Simulation
+    Simulator::Stop(Seconds(11.0));
+
+    Simulator::Run();
+
+    Ptr<PacketSink> receiver =
+        DynamicCast<PacketSink>(sinkApp.Get(0));
+
+    std::cout << "\nSimulation Completed!"
+              << std::endl;
+
+    std::cout << "Total Bytes Received: "
+              << receiver->GetTotalRx()
+              << std::endl;
+
+    std::cout << "Traffic Rate Limited to 500kbps"
+              << std::endl;
+
+    std::cout << "Congestion Control Completed!"
+              << std::endl;
+
+    Simulator::Destroy();
+
+    return 0;
+}
